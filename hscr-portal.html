@@ -80,7 +80,19 @@
   .field input::placeholder{color:#B6AECF;font-weight:600}
   .field input::-webkit-outer-spin-button,.field input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
   .field input:focus-visible{outline:none}
+  .field input:disabled{-webkit-text-fill-color:var(--ink);opacity:1;cursor:default}
   .field:focus-within{box-shadow:var(--in-sm), 0 0 0 3px rgba(109,59,228,.35)}
+  .field .lock{flex:none;color:var(--muted);display:flex}
+  .field .lock svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;display:block}
+
+  /* ---------- no-access (not scanned from a QR code) ---------- */
+  #noAccess{text-align:center;padding-top:8vh}
+  .noaccess-icon{
+    width:64px;height:64px;border-radius:var(--r-md);background:var(--bg);
+    box-shadow:var(--out);display:grid;place-items:center;margin:0 auto 18px;
+  }
+  .noaccess-icon svg{width:28px;height:28px;stroke:var(--purple);fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+  #noAccess p{margin:10px auto 0;color:var(--muted);font-size:15px;line-height:1.55;max-width:34ch}
 
   /* ---------- service buttons ---------- */
   .services{display:flex;flex-direction:column;gap:16px}
@@ -191,40 +203,53 @@
     </div>
   </div>
 
-  <div>
-    <h1>Welcome to the HSCR system</h1>
-    <p>Enter your table number, then choose the service you need. Your waiter's watch buzzes straight away.</p>
+  <div id="appContent" hidden>
+    <div>
+      <h1>Welcome to the HSCR system</h1>
+      <p>Choose the service you need for your table. Your waiter's watch buzzes straight away.</p>
+    </div>
+
+    <div class="field" id="field">
+      <label for="table">Table number</label>
+      <span class="lock" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+      </span>
+      <input id="table" type="number" inputmode="numeric" min="1" max="2" placeholder="00" autocomplete="off" disabled />
+    </div>
+
+    <div class="services">
+      <button class="svc" data-service="payment" disabled>
+        <span class="icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><rect x="2.5" y="5.5" width="19" height="13" rx="2.5"/><path d="M2.5 10h19"/><path d="M6 14.5h3.5"/></svg>
+        </span>
+        <span class="txt"><b>Make payment</b><span>Bring the bill and card machine</span></span>
+      </button>
+
+      <button class="svc" data-service="waiter" disabled>
+        <span class="icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M3.5 17.5h17"/><path d="M4.8 14.2a7.2 7.2 0 0 1 14.4 0z"/><path d="M12 4v3"/><circle cx="12" cy="3.2" r="1.1"/></svg>
+        </span>
+        <span class="txt"><b>Request waiter</b><span>Someone comes to your table</span></span>
+      </button>
+
+      <button class="svc" data-service="order" disabled>
+        <span class="icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14.5 3v4.5H19"/><path d="M8.5 12.5h7M8.5 16.5h4.5"/></svg>
+        </span>
+        <span class="txt"><b>Make an order</b><span>Ready to order food or drinks</span></span>
+      </button>
+    </div>
+
+    <div class="hint"><span class="dot" id="dot"></span><span id="hint">Enter a table number to begin</span></div>
   </div>
 
-  <div class="field" id="field">
-    <label for="table">Table number</label>
-    <input id="table" type="number" inputmode="numeric" min="1" max="2" placeholder="00" autocomplete="off" />
+  <div id="noAccess" hidden>
+    <div class="noaccess-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/><rect x="3" y="14" width="7" height="7" rx="1.2"/><path d="M14 14h3v3h-3zM19 14h2M14 19h2M19 19h2"/></svg>
+    </div>
+    <h1>Scan to get started</h1>
+    <p>This portal only works from the QR code on your table. Ask a member of staff if you can't find yours, then scan it to continue.</p>
   </div>
-
-  <div class="services">
-    <button class="svc" data-service="payment" disabled>
-      <span class="icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24"><rect x="2.5" y="5.5" width="19" height="13" rx="2.5"/><path d="M2.5 10h19"/><path d="M6 14.5h3.5"/></svg>
-      </span>
-      <span class="txt"><b>Make payment</b><span>Bring the bill and card machine</span></span>
-    </button>
-
-    <button class="svc" data-service="waiter" disabled>
-      <span class="icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24"><path d="M3.5 17.5h17"/><path d="M4.8 14.2a7.2 7.2 0 0 1 14.4 0z"/><path d="M12 4v3"/><circle cx="12" cy="3.2" r="1.1"/></svg>
-      </span>
-      <span class="txt"><b>Request waiter</b><span>Someone comes to your table</span></span>
-    </button>
-
-    <button class="svc" data-service="order" disabled>
-      <span class="icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14.5 3v4.5H19"/><path d="M8.5 12.5h7M8.5 16.5h4.5"/></svg>
-      </span>
-      <span class="txt"><b>Make an order</b><span>Ready to order food or drinks</span></span>
-    </button>
-  </div>
-
-  <div class="hint"><span class="dot" id="dot"></span><span id="hint">Enter a table number to begin</span></div>
 </main>
 
 <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
@@ -261,80 +286,85 @@ const SERVICES = {
   order:   { watch: 'ORDER REQUEST AT TABLE ',  done: 'A waiter will take your order at table ' }
 };
 
-const tableInput = document.getElementById('table');
-tableInput.max = CONFIG.MAX_TABLE;
-const field      = document.getElementById('field');
-const buttons    = [...document.querySelectorAll('.svc')];
-const sheet      = document.getElementById('sheet');
-const hint       = document.getElementById('hint');
-const dot        = document.getElementById('dot');
-
-function tableNo(){
-  const n = parseInt(tableInput.value, 10);
+// ---------------------------------------------------------------------------
+// Table number only ever comes from the QR code on the table (?table=N in
+// the URL) — never typed in. No valid table in the URL means this wasn't
+// opened from a scan, so the ordering UI stays hidden behind an error state.
+function tableFromUrl(){
+  const raw = new URLSearchParams(window.location.search).get('table');
+  const n = parseInt(raw, 10);
   return (Number.isInteger(n) && n >= 1 && n <= CONFIG.MAX_TABLE) ? n : null;
 }
 
-function refresh(){
-  const n = tableNo();
-  buttons.forEach(b => b.disabled = !n);
-  field.classList.toggle('ready', !!n);
-  dot.classList.toggle('live', !!n);
-  hint.textContent = n ? `Table ${n} · connected to the service watch` : 'Enter a table number to begin';
-}
+const qrTable = tableFromUrl();
+document.getElementById('appContent').hidden = !qrTable;
+document.getElementById('noAccess').hidden = !!qrTable;
 
-tableInput.addEventListener('input', () => {
-  if (tableInput.value.length > 2) tableInput.value = tableInput.value.slice(0, 2);
-  refresh();
-});
+// Nothing scanned this session — the error card above is the whole story,
+// there's no table-service UI to wire up.
+if (qrTable) {
+  const tableInput = document.getElementById('table');
+  tableInput.value = qrTable;
+  const field      = document.getElementById('field');
+  const buttons    = [...document.querySelectorAll('.svc')];
+  const sheet      = document.getElementById('sheet');
+  const hint       = document.getElementById('hint');
+  const dot        = document.getElementById('dot');
 
-async function sendToWatch(payload){
-  if (CONFIG.DEMO) return new Promise(r => setTimeout(r, 900));
-  const res = await fetch(CONFIG.ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) throw new Error('bridge returned ' + res.status);
-}
-
-buttons.forEach(btn => btn.addEventListener('click', async () => {
-  const n = tableNo();
-  if (!n) return;
-  const key = btn.dataset.service;
-  const svc = SERVICES[key];
-  const message = svc.watch + n;
-
-  btn.classList.add('sending');
-  if (navigator.vibrate) navigator.vibrate(18);
-
-  try {
-    await sendToWatch({ table: n, service: key, message, buzz: CONFIG.BUZZ_SECONDS });
-
-    document.getElementById('watchMsg').textContent = message;
-    document.getElementById('watchTime').textContent =
-      new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-    document.getElementById('sheetTitle').textContent = 'Request sent';
-    document.getElementById('sheetBody').textContent = svc.done + n + '.';
-    sheet.classList.add('open');
-    document.getElementById('close').focus();
-  } catch (err) {
-    document.getElementById('sheetTitle').textContent = "The watch didn't answer";
-    document.getElementById('sheetBody').textContent =
-      'Nothing was sent. Check the watch is on the same Wi-Fi, then try again or call a waiter over.';
-    document.getElementById('watchMsg').textContent = '-- NO SIGNAL --';
-    sheet.classList.add('open');
-  } finally {
-    btn.classList.remove('sending');
+  function refresh(){
+    buttons.forEach(b => b.disabled = false);
+    field.classList.add('ready');
+    dot.classList.add('live');
+    hint.textContent = `Table ${qrTable} · connected to the service watch`;
   }
-}));
 
-document.getElementById('close').addEventListener('click', () => {
-  sheet.classList.remove('open');
-});
-sheet.addEventListener('click', e => { if (e.target === sheet) sheet.classList.remove('open'); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') sheet.classList.remove('open'); });
+  async function sendToWatch(payload){
+    if (CONFIG.DEMO) return new Promise(r => setTimeout(r, 900));
+    const res = await fetch(CONFIG.ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error('bridge returned ' + res.status);
+  }
 
-refresh();
+  buttons.forEach(btn => btn.addEventListener('click', async () => {
+    const key = btn.dataset.service;
+    const svc = SERVICES[key];
+    const message = svc.watch + qrTable;
+
+    btn.classList.add('sending');
+    if (navigator.vibrate) navigator.vibrate(18);
+
+    try {
+      await sendToWatch({ table: qrTable, service: key, message, buzz: CONFIG.BUZZ_SECONDS });
+
+      document.getElementById('watchMsg').textContent = message;
+      document.getElementById('watchTime').textContent =
+        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      document.getElementById('sheetTitle').textContent = 'Request sent';
+      document.getElementById('sheetBody').textContent = svc.done + qrTable + '.';
+      sheet.classList.add('open');
+      document.getElementById('close').focus();
+    } catch (err) {
+      document.getElementById('sheetTitle').textContent = "The watch didn't answer";
+      document.getElementById('sheetBody').textContent =
+        'Nothing was sent. Check the watch is on the same Wi-Fi, then try again or call a waiter over.';
+      document.getElementById('watchMsg').textContent = '-- NO SIGNAL --';
+      sheet.classList.add('open');
+    } finally {
+      btn.classList.remove('sending');
+    }
+  }));
+
+  document.getElementById('close').addEventListener('click', () => {
+    sheet.classList.remove('open');
+  });
+  sheet.addEventListener('click', e => { if (e.target === sheet) sheet.classList.remove('open'); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') sheet.classList.remove('open'); });
+
+  refresh();
+}
 </script>
 </body>
 </html>
