@@ -1,0 +1,13 @@
+<?php
+// hscr-db.local.php.example
+// ----------------------------------------------------------------
+// Copy to hscr-db.local.php for local XAMPP development. Picked up
+// automatically by backend/api/_bootstrap.php ahead of hscr-db.php when
+// present. Gitignored — never commit real credentials.
+// ----------------------------------------------------------------
+return [
+    'host' => 'localhost',
+    'name' => 'hscr',
+    'user' => 'root',
+    'pass' => '',
+];

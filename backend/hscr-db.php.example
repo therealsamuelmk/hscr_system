@@ -1,0 +1,13 @@
+<?php
+// hscr-db.php.example
+// ----------------------------------------------------------------
+// Copy to hscr-db.php, fill in the real values, and deploy it to
+// ~/hscr-db.php on the server (outside public_html — never web-reachable).
+// hscr-db.php itself is gitignored; never commit real credentials.
+// ----------------------------------------------------------------
+return [
+    'host' => 'localhost',
+    'name' => 'hscriedw_hscr',
+    'user' => 'hscriedw_hscrapp',
+    'pass' => 'REPLACE_ME',
+];

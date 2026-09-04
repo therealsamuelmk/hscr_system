@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#EEEBF5" />
+<title>HSCR — Table service</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;800&family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:        #EEEBF5;
+    --light:     #FFFFFF;
+    --dark:      #C6BFD9;
+    --ink:       #241C3D;
+    --muted:     #6F6791;
+    --purple:    #6D3BE4;
+    --purple-dk: #4B23AC;
+    --purple-sf: #E4DBFB;
+
+    --r-lg: 28px;
+    --r-md: 22px;
+    --r-sm: 14px;
+
+    --out: 9px 9px 18px var(--dark), -9px -9px 18px var(--light);
+    --out-sm: 5px 5px 11px var(--dark), -5px -5px 11px var(--light);
+    --in: inset 6px 6px 12px var(--dark), inset -6px -6px 12px var(--light);
+    --in-sm: inset 4px 4px 8px var(--dark), inset -4px -4px 8px var(--light);
+  }
+
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);
+    font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif;
+    color:var(--ink);
+    min-height:100vh;
+    display:flex;justify-content:center;
+    padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  }
+
+  .app{
+    width:100%;max-width:420px;
+    padding:32px 24px 40px;
+    display:flex;flex-direction:column;gap:26px;
+  }
+
+  /* ---------- header ---------- */
+  .brand{display:flex;align-items:center;gap:12px}
+  .mark{
+    width:46px;height:46px;border-radius:16px;background:var(--bg);
+    box-shadow:var(--out-sm);
+    display:grid;place-items:center;
+    font-weight:800;font-size:15px;letter-spacing:.02em;color:var(--purple);
+    flex:none;
+  }
+  .brand small{display:block;color:var(--muted);font-size:12.5px;font-weight:500;line-height:1.4}
+  .brand b{font-size:15px;font-weight:800;letter-spacing:-.01em}
+
+  h1{
+    font-size:29px;line-height:1.2;font-weight:800;letter-spacing:-.025em;
+    margin:0;
+  }
+  h1 + p{margin:10px 0 0;color:var(--muted);font-size:15px;line-height:1.55;max-width:32ch}
+
+  /* ---------- table field ---------- */
+  .field{
+    background:var(--bg);border-radius:var(--r-md);box-shadow:var(--in);
+    padding:16px 18px;display:flex;align-items:center;gap:14px;
+    transition:box-shadow .25s ease;
+  }
+  .field.ready{box-shadow:var(--in-sm), 0 0 0 2px var(--purple-sf)}
+  .field label{font-size:13px;font-weight:600;color:var(--muted);flex:none}
+  .field input{
+    flex:1;min-width:0;border:0;background:transparent;outline:none;
+    font-family:inherit;font-size:26px;font-weight:800;letter-spacing:-.02em;
+    color:var(--ink);text-align:right;
+  }
+  .field input::placeholder{color:#B6AECF;font-weight:600}
+  .field input::-webkit-outer-spin-button,.field input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .field input:focus-visible{outline:none}
+  .field:focus-within{box-shadow:var(--in-sm), 0 0 0 3px rgba(109,59,228,.35)}
+
+  /* ---------- service buttons ---------- */
+  .services{display:flex;flex-direction:column;gap:16px}
+  .svc{
+    position:relative;
+    display:flex;align-items:center;gap:16px;
+    width:100%;padding:18px 20px;
+    border:0;border-radius:var(--r-lg);
+    background:var(--bg);box-shadow:var(--out);
+    font-family:inherit;text-align:left;cursor:pointer;
+    transition:box-shadow .22s ease, transform .22s ease, opacity .22s ease;
+  }
+  .svc .icon{
+    width:48px;height:48px;flex:none;border-radius:16px;
+    background:linear-gradient(145deg,var(--purple),var(--purple-dk));
+    display:grid;place-items:center;
+    box-shadow:0 6px 14px rgba(75,35,172,.32);
+    transition:box-shadow .22s ease, background .22s ease;
+  }
+  .svc .icon svg{width:23px;height:23px;stroke:#fff;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+  .svc .txt{display:flex;flex-direction:column;gap:3px;min-width:0}
+  .svc .txt b{font-size:16.5px;font-weight:700;letter-spacing:-.015em}
+  .svc .txt span{font-size:12.5px;color:var(--muted);font-weight:500}
+
+  .svc:active{box-shadow:var(--in-sm);transform:scale(.985)}
+  .svc:focus-visible{outline:3px solid var(--purple);outline-offset:3px}
+
+  .svc[disabled]{
+    cursor:not-allowed;opacity:.55;box-shadow:var(--out-sm);
+  }
+  .svc[disabled] .icon{background:#C9C2DC;box-shadow:none}
+  .svc[disabled]:active{transform:none;box-shadow:var(--out-sm)}
+
+  .svc.sending{box-shadow:var(--in-sm);pointer-events:none}
+  .svc.sending .icon{background:linear-gradient(145deg,#8C6BEE,#6D3BE4)}
+  .svc.sending .icon svg{animation:pulse 1s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.35}}
+
+  .hint{
+    text-align:center;font-size:12.5px;color:var(--muted);
+    display:flex;align-items:center;justify-content:center;gap:8px;
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:#9C93BC;flex:none}
+  .dot.live{background:#3FBF7F;box-shadow:0 0 0 4px rgba(63,191,127,.18)}
+
+  /* ---------- confirmation sheet ---------- */
+  .sheet{
+    position:fixed;inset:0;z-index:20;
+    background:rgba(36,28,61,.34);backdrop-filter:blur(6px);
+    display:flex;align-items:flex-end;justify-content:center;
+    opacity:0;pointer-events:none;transition:opacity .28s ease;
+  }
+  .sheet.open{opacity:1;pointer-events:auto}
+  .sheet .panel{
+    width:100%;max-width:420px;background:var(--bg);
+    border-radius:34px 34px 0 0;padding:30px 26px calc(30px + env(safe-area-inset-bottom));
+    transform:translateY(16px);transition:transform .32s cubic-bezier(.2,.8,.25,1);
+    display:flex;flex-direction:column;gap:20px;align-items:center;text-align:center;
+  }
+  .sheet.open .panel{transform:translateY(0)}
+  .tick{
+    width:70px;height:70px;border-radius:50%;background:var(--bg);
+    box-shadow:var(--out-sm);display:grid;place-items:center;
+  }
+  .tick svg{width:30px;height:30px;stroke:var(--purple);fill:none;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+  .sheet h2{margin:0;font-size:21px;font-weight:800;letter-spacing:-.02em}
+  .sheet p{margin:0;color:var(--muted);font-size:14px;line-height:1.55;max-width:30ch}
+
+  /* watch mirror */
+  .watch{
+    width:100%;background:#171226;border-radius:20px;padding:16px;
+    box-shadow:var(--in-sm);
+  }
+  .watch .screen{
+    background:#0D0A17;border:1px solid #2E2645;border-radius:10px;
+    padding:14px 12px;font-family:'JetBrains Mono',ui-monospace,monospace;
+    color:#EDE8FB;
+  }
+  .watch .bar{
+    background:#EDE8FB;color:#171226;font-size:10px;font-weight:700;
+    letter-spacing:.14em;padding:4px 0;text-align:center;border-radius:3px;
+  }
+  .watch .msg{font-size:14px;line-height:1.4;margin-top:12px;word-break:break-word}
+  .watch .foot{font-size:9.5px;color:#7C71A8;margin-top:12px;display:flex;justify-content:space-between}
+  .buzz{color:#C9B6FF}
+
+  .close{
+    width:100%;padding:16px;border:0;border-radius:var(--r-md);
+    background:var(--bg);box-shadow:var(--out-sm);
+    font-family:inherit;font-size:15px;font-weight:700;color:var(--ink);cursor:pointer;
+  }
+  .close:active{box-shadow:var(--in-sm)}
+  .close:focus-visible{outline:3px solid var(--purple);outline-offset:3px}
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation:none !important;transition-duration:.01ms !important}
+  }
+</style>
+</head>
+<body>
+
+<main class="app">
+  <div class="brand">
+    <div class="mark">HS</div>
+    <div>
+      <b>HSCR</b>
+      <small>Table service</small>
+    </div>
+  </div>
+
+  <div>
+    <h1>Welcome to the HSCR system</h1>
+    <p>Enter your table number, then choose the service you need. Your waiter's watch buzzes straight away.</p>
+  </div>
+
+  <div class="field" id="field">
+    <label for="table">Table number</label>
+    <input id="table" type="number" inputmode="numeric" min="1" max="2" placeholder="00" autocomplete="off" />
+  </div>
+
+  <div class="services">
+    <button class="svc" data-service="payment" disabled>
+      <span class="icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><rect x="2.5" y="5.5" width="19" height="13" rx="2.5"/><path d="M2.5 10h19"/><path d="M6 14.5h3.5"/></svg>
+      </span>
+      <span class="txt"><b>Make payment</b><span>Bring the bill and card machine</span></span>
+    </button>
+
+    <button class="svc" data-service="waiter" disabled>
+      <span class="icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M3.5 17.5h17"/><path d="M4.8 14.2a7.2 7.2 0 0 1 14.4 0z"/><path d="M12 4v3"/><circle cx="12" cy="3.2" r="1.1"/></svg>
+      </span>
+      <span class="txt"><b>Request waiter</b><span>Someone comes to your table</span></span>
+    </button>
+
+    <button class="svc" data-service="order" disabled>
+      <span class="icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14.5 3v4.5H19"/><path d="M8.5 12.5h7M8.5 16.5h4.5"/></svg>
+      </span>
+      <span class="txt"><b>Make an order</b><span>Ready to order food or drinks</span></span>
+    </button>
+  </div>
+
+  <div class="hint"><span class="dot" id="dot"></span><span id="hint">Enter a table number to begin</span></div>
+</main>
+
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+  <div class="panel">
+    <div class="tick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg></div>
+    <h2 id="sheetTitle">Request sent</h2>
+    <p id="sheetBody">A waiter has been notified and is on the way.</p>
+
+    <div class="watch">
+      <div class="screen">
+        <div class="bar">HSCR SYSTEM</div>
+        <div class="msg" id="watchMsg">PAYMENT NEEDED AT TABLE 17</div>
+        <div class="foot"><span id="watchTime">12:00</span><span class="buzz">buzzing 10s</span></div>
+      </div>
+    </div>
+
+    <button class="close" id="close">Done</button>
+  </div>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Live: requests go to the HSCR API, which the table watches poll.
+const CONFIG = {
+  DEMO: false,
+  ENDPOINT: '/api/request.php',
+  MAX_TABLE: 2,   // only tables with an assigned watch, for now
+  BUZZ_SECONDS: 10
+};
+
+const SERVICES = {
+  payment: { watch: 'PAYMENT NEEDED AT TABLE ', done: 'The bill is on its way to table ' },
+  waiter:  { watch: 'WAITER NEEDED AT TABLE ',  done: 'A waiter is heading to table ' },
+  order:   { watch: 'ORDER REQUEST AT TABLE ',  done: 'A waiter will take your order at table ' }
+};
+
+const tableInput = document.getElementById('table');
+tableInput.max = CONFIG.MAX_TABLE;
+const field      = document.getElementById('field');
+const buttons    = [...document.querySelectorAll('.svc')];
+const sheet      = document.getElementById('sheet');
+const hint       = document.getElementById('hint');
+const dot        = document.getElementById('dot');
+
+function tableNo(){
+  const n = parseInt(tableInput.value, 10);
+  return (Number.isInteger(n) && n >= 1 && n <= CONFIG.MAX_TABLE) ? n : null;
+}
+
+function refresh(){
+  const n = tableNo();
+  buttons.forEach(b => b.disabled = !n);
+  field.classList.toggle('ready', !!n);
+  dot.classList.toggle('live', !!n);
+  hint.textContent = n ? `Table ${n} · connected to the service watch` : 'Enter a table number to begin';
+}
+
+tableInput.addEventListener('input', () => {
+  if (tableInput.value.length > 2) tableInput.value = tableInput.value.slice(0, 2);
+  refresh();
+});
+
+async function sendToWatch(payload){
+  if (CONFIG.DEMO) return new Promise(r => setTimeout(r, 900));
+  const res = await fetch(CONFIG.ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error('bridge returned ' + res.status);
+}
+
+buttons.forEach(btn => btn.addEventListener('click', async () => {
+  const n = tableNo();
+  if (!n) return;
+  const key = btn.dataset.service;
+  const svc = SERVICES[key];
+  const message = svc.watch + n;
+
+  btn.classList.add('sending');
+  if (navigator.vibrate) navigator.vibrate(18);
+
+  try {
+    await sendToWatch({ table: n, service: key, message, buzz: CONFIG.BUZZ_SECONDS });
+
+    document.getElementById('watchMsg').textContent = message;
+    document.getElementById('watchTime').textContent =
+      new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    document.getElementById('sheetTitle').textContent = 'Request sent';
+    document.getElementById('sheetBody').textContent = svc.done + n + '.';
+    sheet.classList.add('open');
+    document.getElementById('close').focus();
+  } catch (err) {
+    document.getElementById('sheetTitle').textContent = "The watch didn't answer";
+    document.getElementById('sheetBody').textContent =
+      'Nothing was sent. Check the watch is on the same Wi-Fi, then try again or call a waiter over.';
+    document.getElementById('watchMsg').textContent = '-- NO SIGNAL --';
+    sheet.classList.add('open');
+  } finally {
+    btn.classList.remove('sending');
+  }
+}));
+
+document.getElementById('close').addEventListener('click', () => {
+  sheet.classList.remove('open');
+});
+sheet.addEventListener('click', e => { if (e.target === sheet) sheet.classList.remove('open'); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') sheet.classList.remove('open'); });
+
+refresh();
+</script>
+</body>
+</html>
