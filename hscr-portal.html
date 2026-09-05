@@ -86,8 +86,11 @@
   .field .lock svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;display:block}
 
   /* ---------- no-access (not scanned from a QR code) ---------- */
-  #appContent{display:flex;flex-direction:column;gap:26px}
-  #noAccess{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;padding-top:8vh}
+  /* :not([hidden]) matters here — an ID-selector display rule beats the
+     browser's own [hidden]{display:none}, so without this guard setting
+     .hidden=true in JS would stop actually hiding the element. */
+  #appContent:not([hidden]){display:flex;flex-direction:column;gap:26px}
+  #noAccess:not([hidden]){display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;padding-top:8vh}
   .noaccess-icon{
     width:64px;height:64px;border-radius:var(--r-md);background:var(--bg);
     box-shadow:var(--out);display:grid;place-items:center;margin-bottom:8px;
