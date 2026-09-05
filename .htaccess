@@ -1,0 +1,6 @@
+# /table/<N> is the real, scannable table URL (see hscr-portal.html) — rewritten
+# internally to index.html so the address bar (and the page's own JS, which
+# reads window.location.pathname) still sees /table/<N>. Not a redirect: no
+# extra round trip, and nothing for a QR scanner to strip.
+RewriteEngine On
+RewriteRule ^table/([0-9]+)/?$ index.html [L]

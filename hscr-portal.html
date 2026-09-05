@@ -333,13 +333,23 @@ const SERVICES = {
 };
 
 // ---------------------------------------------------------------------------
-// Table number only ever comes from the QR code on the table (?table=N in
-// the URL) — never typed in. No valid table in the URL means this wasn't
-// opened from a scan, so the ordering UI stays hidden behind an error state.
-function tableFromUrl(){
-  const raw = new URLSearchParams(window.location.search).get('table');
+// Table number only ever comes from the QR code on the table — never typed
+// in. No valid table found means this wasn't opened from a scan, so the
+// ordering UI stays hidden behind an error state.
+//
+// Canonical URL is a path, /table/N (see .htaccess): plenty of QR/camera
+// scanner apps strip query strings as "tracking parameters" before opening
+// the link, so ?table=N alone isn't reliable. The query form is still
+// accepted as a fallback for any already-printed codes.
+function tableFromUrlObj(url){
+  const pathMatch = url.pathname.match(/\/table\/(\d+)\/?$/);
+  const raw = pathMatch ? pathMatch[1] : new URLSearchParams(url.search).get('table');
   const n = parseInt(raw, 10);
   return (Number.isInteger(n) && n >= 1 && n <= CONFIG.MAX_TABLE) ? n : null;
+}
+
+function tableFromUrl(){
+  return tableFromUrlObj(window.location);
 }
 
 const qrTable = tableFromUrl();
@@ -414,9 +424,7 @@ if (qrTable) {
   // No table scanned — wire up the in-page scanner offered on the error card.
   function extractTable(scannedText){
     try {
-      const url = new URL(scannedText, window.location.origin);
-      const n = parseInt(url.searchParams.get('table'), 10);
-      return (Number.isInteger(n) && n >= 1 && n <= CONFIG.MAX_TABLE) ? n : null;
+      return tableFromUrlObj(new URL(scannedText, window.location.origin));
     } catch {
       return null;
     }
@@ -468,7 +476,7 @@ if (qrTable) {
           const n = extractTable(code.data);
           if (n) {
             stopScanner();
-            window.location.search = '?table=' + n;
+            window.location.pathname = '/table/' + n;
             return;
           }
           scannerHint.textContent = "That code isn't a valid HSCR table code — try again.";
