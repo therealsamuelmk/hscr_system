@@ -131,15 +131,25 @@ inline void HSCRFace::buzz(uint16_t ms) {
 }
 
 inline void HSCRFace::connectWiFi() {
+  if (WiFi.status() == WL_CONNECTED) return;
+
+  WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
+  WiFi.disconnect(true);        // clear any half-open association first
+  delay(100);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.print("Connecting to WiFi");
+
+  Serial.printf("Connecting to \"%s\"", WIFI_SSID);
   unsigned long start = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - start < 20000UL) {
-    delay(300);
+  while (WiFi.status() != WL_CONNECTED && millis() - start < 15000UL) {
+    delay(250);
     Serial.print(".");
   }
-  Serial.println(WiFi.status() == WL_CONNECTED ? " connected" : " FAILED (will retry in loop)");
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println(" connected, IP=" + WiFi.localIP().toString());
+  } else {
+    Serial.printf(" not yet (status=%d, will retry)\n", WiFi.status());
+  }
 }
 
 inline void HSCRFace::syncTime() {
@@ -282,9 +292,14 @@ inline void HSCRFace::drawAlert() {
 }
 
 inline void HSCRFace::begin() {
+  Serial.begin(115200);
+  delay(200);
+
   pinMode(PIN_VIB, OUTPUT);
   digitalWrite(PIN_VIB, LOW);
-  pinMode(BTN_MENU, INPUT_PULLUP);
+  // Watchy buttons are active-HIGH (external pull-downs, button to 3V3) on
+  // every revision — same wiring the library's ext1 ANY_HIGH wake relies on.
+  pinMode(BTN_MENU, INPUT);
 
 #if WATCHY_HW == 3
   SPI.begin(PIN_SCK, PIN_MISO, PIN_MOSI, PIN_CS);
@@ -292,7 +307,23 @@ inline void HSCRFace::begin() {
   display.init(115200);
   display.setRotation(0);
 
-  Serial.begin(115200);
+  // Scan so the serial log shows whether the target SSID is even visible
+  // (this chip is 2.4GHz-only). Retry a few times — the first scan right
+  // after radio init often comes back empty.
+  WiFi.persistent(false);
+  WiFi.mode(WIFI_STA);
+  delay(200);
+  for (int attempt = 1; attempt <= 4; attempt++) {
+    int n = WiFi.scanNetworks();
+    Serial.printf("WiFi scan #%d: %d networks\n", attempt, n);
+    for (int i = 0; i < n; i++) {
+      Serial.printf("  %2d) %-32s  rssi=%d  ch=%d\n",
+                    i, WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i));
+    }
+    if (n > 0) break;
+    delay(1500);
+  }
+
   connectWiFi();
   syncTime();
 
@@ -302,7 +333,7 @@ inline void HSCRFace::begin() {
 
 inline void HSCRFace::loop() {
   // Resolve button: only acts while an alert is showing.
-  bool btnDown = (digitalRead(BTN_MENU) == LOW);
+  bool btnDown = (digitalRead(BTN_MENU) == HIGH);
   if (btnDown && !btnWasDown_ && state_ == FACE_ALERT) {
     sendResolve();
     buzz(60);

@@ -1,6 +1,7 @@
-# Real DB credentials — never commit these. See the .example files for the
+# Real credentials — never commit these. See the .example files for the
 # expected shape; copy one and fill in real values locally / on the server.
 backend/hscr-db.php
 hscr-db.local.php
+Watchy_HSCR/settings.h
 
 .DS_Store

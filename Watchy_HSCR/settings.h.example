@@ -1,12 +1,16 @@
 #ifndef SETTINGS_H
 #define SETTINGS_H
 
+// Copy this file to settings.h and fill in the real values before flashing.
+// settings.h is gitignored — it holds the WiFi password and the per-device
+// table number, neither of which belongs in version control.
+
 // ---------------------------------------------------------------
 // Hardware revision: 2 = ESP32-PICO-D4 (v1 / v1.5 / v2, micro-USB)
 //                     3 = ESP32-S3 (v3, USB-C)
 // Must match HSCR_PinTest.ino's WATCHY_HW for whatever board you flash.
 // ---------------------------------------------------------------
-#define WATCHY_HW 2
+#define WATCHY_HW 3
 
 // ---------------------------------------------------------------
 // This watch's table number. The ONE thing that differs between the
