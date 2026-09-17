@@ -1,15 +1,17 @@
 /*
  * Watchy_HSCR.ino
  * ----------------------------------------------------------
- * HSCR table-service watch. Polls the HSCR API every 10-15s for this
- * watch's table (TABLE_NUMBER in settings.h); when staff needs to be
- * called it buzzes and shows the table + requested service until the
- * MENU button is pressed to resolve it.
+ * Self-contained, offline HSCR table-service watch. No venue WiFi or
+ * internet needed: the watch broadcasts its own WiFi network (see
+ * AP_SSID_PREFIX/TABLE_NUMBER in settings.h). A guest joins it, gets
+ * a small order page served by the watch itself, and submitting it
+ * shows the table + requested service on-screen and buzzes repeatedly
+ * until staff presses MENU to mark it delivered.
  *
  * Folder must be named Watchy_HSCR and contain:
  *   Watchy_HSCR.ino   (this file)
- *   settings.h        (WiFi, table number, API URL — edit before flashing)
- *   HSCR_Face.h        (display + networking)
+ *   settings.h        (table number, AP name/password — edit before flashing)
+ *   HSCR_Face.h        (display + AP + web server)
  *
  * Board settings (Arduino IDE):
  *   Watchy v1 / v1.5 / v2  ->  Tools > Board > ESP32 Arduino > "ESP32 Dev Module"
@@ -18,13 +20,12 @@
  *                              Flash Size: 8MB, Partition Scheme: 8M with spiffs,
  *                              USB CDC On Boot: Enabled (set WATCHY_HW 3 in settings.h)
  *
- * Library Manager dependencies: GxEPD2, ArduinoJson (v7).
- * WiFi / WiFiClientSecure / HTTPClient ship with the ESP32 core.
+ * Library Manager dependencies: GxEPD2. WiFi / DNSServer / WebServer ship
+ * with the ESP32 core — nothing else to install.
  *
- * Unlike the original stock watchface, this build stays awake and
- * connected to WiFi continuously (no deep sleep) so it can poll the
- * API every POLL_INTERVAL_MS — see the trade-off notes at the top of
- * HSCR_Face.h and in settings.h.
+ * Stays awake continuously (no deep sleep) to keep serving the AP and web
+ * requests — battery life is shorter than a stock Watchy, same trade-off
+ * as before.
  */
 
 #include "settings.h"

@@ -2,23 +2,19 @@
 #define HSCR_FACE_H
 
 // ----------------------------------------------------------------------------
-// HSCR_Face.h
+// HSCR_Face.h — self-contained, offline table-service watch.
 // ----------------------------------------------------------------------------
-// Display + network logic for the HSCR table watch. Deliberately NOT built on
-// the Watchy library's `Watchy` base class: that class deep-sleeps at the end
-// of init() (its whole design point for e-paper battery life), which is
-// incompatible with the "stay connected, poll every 10-15s" behaviour this
-// system needs. Instead this drives the same GxEPD2 panel directly, the way
-// HSCR_PinTest.ino already does on this exact hardware.
+// No venue WiFi, no internet, no backend server. The watch broadcasts its own
+// WiFi network (AP mode — proven reliable on this hardware, unlike joining an
+// external network in STA mode); a guest's phone joins it, opens a browser,
+// and gets a tiny order page served directly by the watch. Submitting the
+// form updates the display immediately and buzzes repeatedly until staff
+// presses MENU to mark it delivered.
 //
-// Trade-off accepted for this phase: WiFi stays associated continuously, so
-// battery life will be much shorter than a stock Watchy. Step count and
-// battery percentage from the original watchface are NOT reproduced here —
-// those came from the Watchy library's internal accelerometer/ADC handling,
-// which isn't vendored in this repo, so rather than guess at pin numbers /
-// drivers this build can't verify, they're left out. Wire them back in if you
-// can share the Watchy library's header (battery ADC pin + accelerometer
-// driver), or with real hardware to test against.
+// A DNS server that answers every lookup with the watch's own IP is what
+// makes most phones auto-pop the "Sign in to network" page after joining
+// (the standard captive-portal trick); if that doesn't fire on a given
+// phone, browsing to 192.168.4.1 manually works too.
 // ----------------------------------------------------------------------------
 
 #include "settings.h"
@@ -27,10 +23,8 @@
 #include <Fonts/FreeMonoBold12pt7b.h>
 #include <Fonts/FreeSansBold24pt7b.h>
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
-#include <ArduinoJson.h>
-#include <time.h>
+#include <DNSServer.h>
+#include <WebServer.h>
 
 // ---- pin map (mirrors HSCR_PinTest.ino) ------------------------------------
 #if WATCHY_HW == 3
@@ -67,13 +61,13 @@
 static GxEPD2_BW<GxEPD2_154_D67, GxEPD2_154_D67::HEIGHT> display(
     GxEPD2_154_D67(PIN_CS, PIN_DC, PIN_RES, PIN_BUSY));
 
-// SERVICES: wording mirrors the SERVICES map in hscr-portal.html so a guest
-// reads the same phrasing on the portal and on the watch.
-struct ServiceLabel { const char *key; const char *watchText; };
+// SERVICES: wording mirrors the SERVICES map in hscr-portal.html so the
+// phrasing matches, even though this page is served entirely by the watch.
+struct ServiceLabel { const char *key; const char *label; const char *watchText; };
 static const ServiceLabel SERVICES[] = {
-  { "payment", "PAYMENT NEEDED AT TABLE " },
-  { "waiter",  "WAITER NEEDED AT TABLE "  },
-  { "order",   "ORDER REQUEST AT TABLE "  },
+  { "payment", "Make payment",   "PAYMENT NEEDED AT TABLE " },
+  { "waiter",  "Request waiter", "WAITER NEEDED AT TABLE "  },
+  { "order",   "Make an order",  "ORDER REQUEST AT TABLE "  },
 };
 static const int SERVICES_COUNT = sizeof(SERVICES) / sizeof(SERVICES[0]);
 
@@ -94,27 +88,30 @@ public:
 private:
   FaceState state_ = FACE_IDLE;
   String activeService_ = "";
-  int lastDrawnMinute_ = -1;
-  unsigned long lastPollMs_ = 0;
+  String activeTable_ = "";
   bool btnWasDown_ = false;
+  unsigned long vibeUntil_ = 0;
+  bool vibeOn_ = false;
 
-  void connectWiFi();
-  void syncTime();
-  bool pollState();     // true if it changed activeService_/state_
-  void sendResolve();
+  DNSServer dns_;
+  WebServer server_{80};
+  String apSsid_;
+
   void buzz(uint16_t ms);
+  void startAlert(const String &table, const String &service);
+  void resolveAlert();
+  void vibratePump();   // non-blocking on/off pulse while alerting
 
   void drawIdle();
   void drawAlert();
   void printCentered(const String &txt, int16_t y);
-  String two(int v);
+
+  void setupRoutes();
+  String pageOrderForm();
+  String pageThanks(const String &table, const String &service);
 };
 
 // ---------------------------------------------------------------------------
-
-inline String HSCRFace::two(int v) {
-  return (v < 10) ? "0" + String(v) : String(v);
-}
 
 inline void HSCRFace::printCentered(const String &txt, int16_t y) {
   int16_t x1, y1;
@@ -130,98 +127,7 @@ inline void HSCRFace::buzz(uint16_t ms) {
   digitalWrite(PIN_VIB, LOW);
 }
 
-inline void HSCRFace::connectWiFi() {
-  if (WiFi.status() == WL_CONNECTED) return;
-
-  WiFi.persistent(false);
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect(true);        // clear any half-open association first
-  delay(100);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  Serial.printf("Connecting to \"%s\"", WIFI_SSID);
-  unsigned long start = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - start < 15000UL) {
-    delay(250);
-    Serial.print(".");
-  }
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println(" connected, IP=" + WiFi.localIP().toString());
-  } else {
-    Serial.printf(" not yet (status=%d, will retry)\n", WiFi.status());
-  }
-}
-
-inline void HSCRFace::syncTime() {
-  configTime(GMT_OFFSET_SEC, DST_OFFSET_SEC, NTP_SERVER);
-  struct tm t;
-  getLocalTime(&t, 8000); // best-effort; idle face just shows 00:00 until this succeeds
-}
-
-inline bool HSCRFace::pollState() {
-  if (WiFi.status() != WL_CONNECTED) {
-    connectWiFi();
-    if (WiFi.status() != WL_CONNECTED) return false;
-  }
-
-  WiFiClientSecure client;
-  client.setInsecure(); // see settings.h note: no cert pinning in this phase
-
-  HTTPClient http;
-  http.setTimeout(HTTP_TIMEOUT_MS);
-  String url = String(API_BASE_URL) + "/state.php?table=" + String(TABLE_NUMBER);
-  if (!http.begin(client, url)) return false;
-
-  int code = http.GET();
-  if (code != 200) {
-    Serial.printf("state.php GET failed: %d\n", code);
-    http.end();
-    return false;
-  }
-
-  String body = http.getString();
-  http.end();
-
-  JsonDocument doc;
-  if (deserializeJson(doc, body) != DeserializationError::Ok) return false;
-  if (!doc["ok"].as<bool>()) return false;
-
-  int newState = doc["state"] | 0;
-  String newService = doc["service"].isNull() ? String("") : doc["service"].as<String>();
-
-  bool changed = (newState == 1 && state_ == FACE_IDLE) ||
-                 (newState == 0 && state_ == FACE_ALERT) ||
-                 (newState == 1 && newService != activeService_);
-
-  state_ = (newState == 1) ? FACE_ALERT : FACE_IDLE;
-  activeService_ = newService;
-  return changed;
-}
-
-inline void HSCRFace::sendResolve() {
-  if (WiFi.status() != WL_CONNECTED) return;
-
-  WiFiClientSecure client;
-  client.setInsecure();
-
-  HTTPClient http;
-  http.setTimeout(HTTP_TIMEOUT_MS);
-  String url = String(API_BASE_URL) + "/resolve.php";
-  if (!http.begin(client, url)) return;
-  http.addHeader("Content-Type", "application/json");
-
-  String payload = "{\"table\":" + String(TABLE_NUMBER) + "}";
-  http.POST(payload);
-  http.end();
-
-  state_ = FACE_IDLE;
-  activeService_ = "";
-}
-
 inline void HSCRFace::drawIdle() {
-  struct tm t;
-  bool haveTime = getLocalTime(&t, 200);
-
   display.setFullWindow();
   display.firstPage();
   do {
@@ -234,31 +140,26 @@ inline void HSCRFace::drawIdle() {
     printCentered("HSCR TABLE " + String(TABLE_NUMBER), 20);
 
     display.setTextColor(GxEPD_WHITE);
-    display.setFont(&FreeSansBold24pt7b);
-    if (haveTime) {
-      printCentered(two(t.tm_hour) + ":" + two(t.tm_min), 88);
-    } else {
-      printCentered("--:--", 88);
-    }
+    display.setFont(&FreeMonoBold9pt7b);
+    printCentered("JOIN WIFI TO ORDER", 55);
 
-    display.drawLine(12, 116, SCR_W - 12, 116, GxEPD_WHITE);
+    display.drawLine(12, 68, SCR_W - 12, 68, GxEPD_WHITE);
+
+    display.setFont(&FreeMonoBold12pt7b);
+    printCentered(apSsid_, 95);
 
     display.setFont(&FreeMonoBold9pt7b);
-    if (haveTime) {
-      char dateBuf[24];
-      strftime(dateBuf, sizeof(dateBuf), "%a %d %b %Y", &t);
-      String date = String(dateBuf);
-      date.toUpperCase();
-      printCentered(date, 145);
-    }
+    printCentered(strlen(AP_PASSWORD) ? "PASSWORD: " AP_PASSWORD : "(OPEN NETWORK)", 118);
 
-    display.setCursor(14, 175);
-    display.print(WiFi.status() == WL_CONNECTED ? "> WATCHING TABLE" : "> WIFI RECONNECTING");
+    display.drawLine(12, 140, SCR_W - 12, 140, GxEPD_WHITE);
+    display.setCursor(14, 162);
+    display.print("THEN VISIT:");
+    display.setCursor(14, 182);
+    display.print(WiFi.softAPIP().toString());
+
     display.setCursor(14, 196);
     display.print("> SYS OK");
   } while (display.nextPage());
-
-  if (haveTime) lastDrawnMinute_ = t.tm_min;
 }
 
 inline void HSCRFace::drawAlert() {
@@ -277,19 +178,149 @@ inline void HSCRFace::drawAlert() {
 
     display.setTextColor(GxEPD_BLACK);
     display.setFont(&FreeSansBold24pt7b);
-    printCentered("TABLE " + String(TABLE_NUMBER), 78);
+    printCentered("TABLE " + activeTable_, 78);
 
     display.setFont(&FreeMonoBold9pt7b);
     display.setCursor(10, 115);
-    display.print(String(label) + String(TABLE_NUMBER));
+    display.print(String(label) + activeTable_);
 
     display.drawLine(12, 150, SCR_W - 12, 150, GxEPD_BLACK);
     display.setCursor(14, 175);
     display.print("> PRESS MENU");
     display.setCursor(14, 196);
-    display.print("  WHEN DONE");
+    display.print("  WHEN DELIVERED");
   } while (display.nextPage());
 }
+
+// ---- web pages --------------------------------------------------------------
+
+inline String HSCRFace::pageOrderForm() {
+  String html =
+    "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<title>HSCR Table Service</title>"
+    "<style>"
+    "body{font-family:system-ui,sans-serif;background:#EEEBF5;color:#241C3D;"
+    "max-width:420px;margin:0 auto;padding:32px 24px}"
+    "h1{font-size:26px;margin:0 0 8px}"
+    "p{color:#6F6791;margin:0 0 24px}"
+    "label{display:block;font-weight:600;margin:0 0 6px;font-size:14px}"
+    "input[type=number]{width:100%;font-size:22px;padding:14px;border-radius:14px;"
+    "border:2px solid #C6BFD9;margin-bottom:22px;box-sizing:border-box}"
+    ".svc{display:block;width:100%;padding:16px;margin-bottom:12px;border-radius:16px;"
+    "border:2px solid #C6BFD9;background:#fff;font-size:16px;font-weight:600;text-align:left}"
+    "input[type=radio]{margin-right:10px;transform:scale(1.3)}"
+    "button{width:100%;padding:16px;margin-top:10px;border:0;border-radius:14px;"
+    "background:#6D3BE4;color:#fff;font-size:17px;font-weight:700}"
+    "</style></head><body>"
+    "<h1>HSCR Table Service</h1>"
+    "<p>Enter your table number and choose what you need.</p>"
+    "<form method='POST' action='/request'>"
+    "<label for='table'>Table number</label>"
+    "<input type='number' id='table' name='table' min='1' max='99' value='" + String(TABLE_NUMBER) + "' required>";
+
+  for (int i = 0; i < SERVICES_COUNT; i++) {
+    html += "<label class='svc'><input type='radio' name='service' value='" + String(SERVICES[i].key) + "'"
+            + (i == 0 ? " checked" : "") + ">" + SERVICES[i].label + "</label>";
+  }
+
+  html += "<button type='submit'>Send request</button></form></body></html>";
+  return html;
+}
+
+inline String HSCRFace::pageThanks(const String &table, const String &service) {
+  const char *label = serviceWatchText(service);
+  String html =
+    "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<title>Request sent</title>"
+    "<style>body{font-family:system-ui,sans-serif;background:#EEEBF5;color:#241C3D;"
+    "max-width:420px;margin:0 auto;padding:48px 24px;text-align:center}"
+    "h1{font-size:24px}p{color:#6F6791}"
+    "a{display:inline-block;margin-top:24px;color:#6D3BE4;font-weight:700}</style>"
+    "</head><body>"
+    "<h1>Request sent</h1>"
+    "<p>" + String(label) + table + "</p>"
+    "<p>Your waiter's watch is buzzing now.</p>"
+    "<a href='/'>&larr; Send another request</a>"
+    "</body></html>";
+  return html;
+}
+
+inline void HSCRFace::startAlert(const String &table, const String &service) {
+  activeTable_ = table;
+  activeService_ = service;
+  state_ = FACE_ALERT;
+  vibeUntil_ = 0;
+  vibeOn_ = false;
+  drawAlert();
+}
+
+inline void HSCRFace::resolveAlert() {
+  state_ = FACE_IDLE;
+  digitalWrite(PIN_VIB, LOW);
+  drawIdle();
+}
+
+inline void HSCRFace::vibratePump() {
+  if (state_ != FACE_ALERT) return;
+  unsigned long now = millis();
+  if (now >= vibeUntil_) {
+    vibeOn_ = !vibeOn_;
+    digitalWrite(PIN_VIB, vibeOn_ ? HIGH : LOW);
+    vibeUntil_ = now + (vibeOn_ ? VIBRATE_ON_MS : VIBRATE_OFF_MS);
+  }
+}
+
+// ---- routes -------------------------------------------------------------
+
+inline void HSCRFace::setupRoutes() {
+  server_.on("/", HTTP_GET, [this]() {
+    server_.send(200, "text/html", pageOrderForm());
+  });
+
+  server_.on("/request", HTTP_POST, [this]() {
+    String table = server_.arg("table");
+    String service = server_.arg("service");
+    table.trim();
+
+    bool validTable = table.length() > 0 && table.length() <= 2;
+    for (size_t i = 0; validTable && i < table.length(); i++) {
+      if (!isDigit(table[i])) validTable = false;
+    }
+    bool validService = false;
+    for (int i = 0; i < SERVICES_COUNT; i++) {
+      if (service == SERVICES[i].key) validService = true;
+    }
+
+    if (!validTable || !validService) {
+      server_.send(400, "text/plain", "Please choose a table number and a service.");
+      return;
+    }
+
+    server_.send(200, "text/html", pageThanks(table, service));
+    startAlert(table, service);
+  });
+
+  // Captive-portal probes: send everything to us so phones auto-pop the
+  // "Sign in to network" page after joining.
+  const char *captivePaths[] = {
+    "/generate_204", "/gen_204", "/hotspot-detect.html", "/library/test/success.html",
+    "/ncsi.txt", "/connecttest.txt", "/success.txt", "/fwlink"
+  };
+  for (const char *path : captivePaths) {
+    server_.on(path, HTTP_GET, [this]() {
+      server_.sendHeader("Location", "http://" + WiFi.softAPIP().toString() + "/", true);
+      server_.send(302, "text/plain", "");
+    });
+  }
+  server_.onNotFound([this]() {
+    server_.sendHeader("Location", "http://" + WiFi.softAPIP().toString() + "/", true);
+    server_.send(302, "text/plain", "");
+  });
+}
+
+// ---------------------------------------------------------------------------
 
 inline void HSCRFace::begin() {
   Serial.begin(115200);
@@ -298,7 +329,7 @@ inline void HSCRFace::begin() {
   pinMode(PIN_VIB, OUTPUT);
   digitalWrite(PIN_VIB, LOW);
   // Watchy buttons are active-HIGH (external pull-downs, button to 3V3) on
-  // every revision — same wiring the library's ext1 ANY_HIGH wake relies on.
+  // every revision.
   pinMode(BTN_MENU, INPUT);
 
 #if WATCHY_HW == 3
@@ -307,62 +338,34 @@ inline void HSCRFace::begin() {
   display.init(115200);
   display.setRotation(0);
 
-  // Scan so the serial log shows whether the target SSID is even visible
-  // (this chip is 2.4GHz-only). Retry a few times — the first scan right
-  // after radio init often comes back empty.
-  WiFi.persistent(false);
-  WiFi.mode(WIFI_STA);
-  delay(200);
-  for (int attempt = 1; attempt <= 4; attempt++) {
-    int n = WiFi.scanNetworks();
-    Serial.printf("WiFi scan #%d: %d networks\n", attempt, n);
-    for (int i = 0; i < n; i++) {
-      Serial.printf("  %2d) %-32s  rssi=%d  ch=%d\n",
-                    i, WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i));
-    }
-    if (n > 0) break;
-    delay(1500);
-  }
+  apSsid_ = String(AP_SSID_PREFIX) + String(TABLE_NUMBER);
+  WiFi.mode(WIFI_AP);
+  bool ok = strlen(AP_PASSWORD) >= 8
+    ? WiFi.softAP(apSsid_.c_str(), AP_PASSWORD)
+    : WiFi.softAP(apSsid_.c_str());
+  Serial.printf("softAP \"%s\": %s, IP=%s\n",
+                apSsid_.c_str(), ok ? "OK" : "FAILED",
+                WiFi.softAPIP().toString().c_str());
 
-  connectWiFi();
-  syncTime();
+  dns_.start(53, "*", WiFi.softAPIP());
+  setupRoutes();
+  server_.begin();
 
   drawIdle();
-  lastPollMs_ = millis();
 }
 
 inline void HSCRFace::loop() {
+  dns_.processNextRequest();
+  server_.handleClient();
+  vibratePump();
+
   // Resolve button: only acts while an alert is showing.
   bool btnDown = (digitalRead(BTN_MENU) == HIGH);
   if (btnDown && !btnWasDown_ && state_ == FACE_ALERT) {
-    sendResolve();
+    resolveAlert();
     buzz(60);
-    drawIdle();
   }
   btnWasDown_ = btnDown;
-
-  unsigned long now = millis();
-  if (now - lastPollMs_ >= POLL_INTERVAL_MS) {
-    lastPollMs_ = now;
-
-    FaceState before = state_;
-    bool changed = pollState();
-
-    if (changed && state_ == FACE_ALERT) {
-      buzz(400);
-      drawAlert();
-    } else if (changed && state_ == FACE_IDLE) {
-      drawIdle();
-    } else if (!changed && state_ == FACE_IDLE) {
-      // Redraw the clock roughly once a minute so it stays accurate,
-      // without a full e-paper refresh on every 12s poll.
-      struct tm t;
-      if (getLocalTime(&t, 200) && t.tm_min != lastDrawnMinute_) {
-        drawIdle();
-      }
-    }
-    (void) before;
-  }
 }
 
 #endif
