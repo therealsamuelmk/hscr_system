@@ -150,31 +150,37 @@ inline void HSCRFace::drawIdle() {
     display.fillScreen(GxEPD_BLACK);
     display.setTextWrap(false);
 
+    // Top banner: always "HSCR SYSTEM".
     display.fillRect(0, 0, SCR_W, 28, GxEPD_WHITE);
     display.setFont(&FreeMonoBold12pt7b);
     display.setTextColor(GxEPD_BLACK);
-    printCentered("HSCR TABLE " + String(TABLE_NUMBER), 20);
+    printCentered("HSCR SYSTEM", 20);
 
+    // Middle: how to join and where to go — still needed so a guest
+    // actually knows what to connect to.
     display.setTextColor(GxEPD_WHITE);
     display.setFont(&FreeMonoBold9pt7b);
-    printCentered("JOIN WIFI TO ORDER", 55);
+    printCentered("JOIN WIFI TO ORDER", 50);
 
-    display.drawLine(12, 68, SCR_W - 12, 68, GxEPD_WHITE);
+    display.drawLine(12, 62, SCR_W - 12, 62, GxEPD_WHITE);
 
     display.setFont(&FreeMonoBold12pt7b);
-    printCentered(apSsid_, 95);
+    printCentered(apSsid_, 84);
 
     display.setFont(&FreeMonoBold9pt7b);
-    printCentered(strlen(AP_PASSWORD) ? "PASSWORD: " AP_PASSWORD : "(OPEN NETWORK)", 118);
+    printCentered(strlen(AP_PASSWORD) ? "PASSWORD: " AP_PASSWORD : "(OPEN NETWORK)", 104);
 
-    display.drawLine(12, 140, SCR_W - 12, 140, GxEPD_WHITE);
-    display.setCursor(14, 162);
+    display.drawLine(12, 118, SCR_W - 12, 118, GxEPD_WHITE);
+    display.setCursor(14, 138);
     display.print("THEN VISIT:");
-    display.setCursor(14, 182);
+    display.setCursor(14, 156);
     display.print(WiFi.softAPIP().toString());
 
-    display.setCursor(14, 196);
-    display.print("> SYS OK");
+    // Bottom banner: always "WAITING FOR CUSTOMER REQUEST".
+    display.fillRect(0, 160, SCR_W, SCR_H - 160, GxEPD_WHITE);
+    display.setTextColor(GxEPD_BLACK);
+    printCentered("WAITING FOR", 178);
+    printCentered("CUSTOMER REQUEST", 196);
   } while (display.nextPage());
 }
 
@@ -210,40 +216,46 @@ inline void HSCRFace::drawAlert() {
 
 // ---- web pages --------------------------------------------------------------
 
-// Shared <head>: iOS-style glassmorphism, entirely self-contained (no
+// Shared <head>: monochrome glass + raised (neumorphic) surfaces — solid
+// white/black only, no gradients or colour. Entirely self-contained (no
 // external fonts/CDNs — the watch's AP has no internet to fetch them from).
+// Convention: recessed/inset shadow for the input (a slot you fill in),
+// raised/embossed shadow for everything tappable (glass on top of that for
+// the "frosted" look); black is the one accent, used for selected/primary.
 static const char PAGE_STYLE[] =
   "<style>"
-  ":root{--glass:rgba(255,255,255,.14);--glass-strong:rgba(255,255,255,.22);"
-  "--border:rgba(255,255,255,.35);--muted:rgba(255,255,255,.72)}"
+  ":root{"
+  "--bg:#F0F0F3;--ink:#101012;--muted:#6B6B70;"
+  "--glass:rgba(255,255,255,.55);--glass-strong:rgba(255,255,255,.75);"
+  "--border:rgba(255,255,255,.8);"
+  "--out:6px 6px 14px rgba(0,0,0,.14),-6px -6px 14px rgba(255,255,255,.9);"
+  "--out-sm:4px 4px 9px rgba(0,0,0,.12),-4px -4px 9px rgba(255,255,255,.85);"
+  "--in:inset 4px 4px 8px rgba(0,0,0,.12),inset -4px -4px 8px rgba(255,255,255,.9);"
+  "}"
   "*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}"
   "html,body{margin:0;padding:0}"
   "body{"
   "font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,sans-serif;"
-  "color:#fff;min-height:100vh;display:flex;justify-content:center;"
-  "background:"
-  "radial-gradient(circle at 15% 8%,#8B5CF6 0%,transparent 45%),"
-  "radial-gradient(circle at 88% 18%,#EC4899 0%,transparent 42%),"
-  "radial-gradient(circle at 50% 105%,#3B82F6 0%,transparent 55%),"
-  "linear-gradient(160deg,#4B23AC 0%,#1B1530 100%);"
-  "background-attachment:fixed;"
+  "color:var(--ink);background:var(--bg);min-height:100vh;display:flex;justify-content:center;"
   "padding:max(28px,env(safe-area-inset-top)) 20px max(28px,env(safe-area-inset-bottom))"
   "}"
   ".wrap{width:100%;max-width:420px;display:flex;flex-direction:column;gap:18px}"
   ".brand{display:flex;align-items:center;gap:12px}"
   ".mark{width:44px;height:44px;border-radius:14px;background:var(--glass-strong);"
-  "backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--border);"
-  "display:grid;place-items:center;font-weight:800;font-size:14px}"
+  "backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:var(--out-sm);"
+  "display:grid;place-items:center;font-weight:800;font-size:14px;color:var(--ink)}"
   ".brand b{display:block;font-size:15px;font-weight:800}"
   ".brand small{display:block;color:var(--muted);font-size:12.5px}"
-  ".glass{background:var(--glass);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);"
-  "border:1px solid var(--border);border-radius:26px;box-shadow:0 8px 32px rgba(0,0,0,.25)}"
-  "h1{font-size:24px;font-weight:800;margin:0 0 6px;letter-spacing:-.02em}"
+  ".glass{background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);"
+  "border:1px solid var(--border);border-radius:26px;box-shadow:var(--out)}"
+  "h1{font-size:24px;font-weight:800;margin:0 0 6px;letter-spacing:-.02em;color:var(--ink)}"
   ".lead{color:var(--muted);font-size:14.5px;margin:0;line-height:1.5}"
-  ".field{padding:16px 18px;display:flex;align-items:center;gap:14px}"
+  ".field{padding:16px 18px;display:flex;align-items:center;gap:14px;border-radius:20px;"
+  "background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);"
+  "box-shadow:var(--in)}"
   ".field label{font-size:13px;font-weight:600;color:var(--muted);flex:none}"
   ".field input{flex:1;min-width:0;border:0;background:transparent;outline:none;"
-  "font-family:inherit;color:#fff;font-size:26px;font-weight:800;text-align:right}"
+  "font-family:inherit;color:var(--ink);font-size:26px;font-weight:800;text-align:right}"
   "input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{"
   "-webkit-appearance:none;margin:0}"
   ".services{display:flex;flex-direction:column;gap:12px}"
@@ -251,24 +263,27 @@ static const char PAGE_STYLE[] =
   ".svc input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}"
   ".svc .card{display:flex;align-items:center;gap:14px;padding:16px 18px;border-radius:20px;"
   "background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);"
-  "border:1px solid var(--border);transition:background .18s ease,border-color .18s ease,transform .12s ease}"
-  ".svc input:checked~.card{background:linear-gradient(135deg,rgba(139,92,246,.55),rgba(236,72,153,.35));"
-  "border-color:rgba(255,255,255,.7)}"
+  "border:1px solid var(--border);box-shadow:var(--out-sm);"
+  "transition:background .18s ease,color .18s ease,transform .12s ease}"
+  ".svc input:checked~.card{background:var(--ink);color:#fff;border-color:var(--ink)}"
+  ".svc input:checked~.card .muted-text{color:rgba(255,255,255,.72)}"
+  ".svc input:checked~.card .icon{background:rgba(255,255,255,.16)}"
+  ".svc input:checked~.card .icon svg{stroke:#fff}"
   ".svc input:active~.card{transform:scale(.98)}"
-  ".icon{width:42px;height:42px;flex:none;border-radius:13px;background:rgba(255,255,255,.18);"
-  "display:grid;place-items:center}"
-  ".icon svg{width:20px;height:20px;stroke:#fff;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}"
+  ".icon{width:42px;height:42px;flex:none;border-radius:13px;background:rgba(0,0,0,.06);"
+  "display:grid;place-items:center;transition:background .18s ease}"
+  ".icon svg{width:20px;height:20px;stroke:var(--ink);fill:none;stroke-width:1.9;"
+  "stroke-linecap:round;stroke-linejoin:round;transition:stroke .18s ease}"
   ".card b{display:block;font-size:15.5px;font-weight:700}"
-  ".card span{display:block;font-size:12px;color:var(--muted);margin-top:2px}"
+  ".card span.muted-text{display:block;font-size:12px;color:var(--muted);margin-top:2px;"
+  "transition:color .18s ease}"
   "button{width:100%;padding:17px;border:0;border-radius:20px;font-family:inherit;"
-  "background:linear-gradient(135deg,#8B5CF6,#6D3BE4);color:#fff;font-size:16px;font-weight:700;"
-  "box-shadow:0 10px 24px rgba(109,59,228,.45)}"
-  "button:active{transform:scale(.98)}"
-  "a.back{display:inline-flex;align-items:center;gap:6px;color:#fff;font-weight:700;"
+  "background:var(--ink);color:#fff;font-size:16px;font-weight:700;box-shadow:var(--out)}"
+  "button:active{transform:scale(.98);box-shadow:var(--out-sm)}"
+  "a.back{display:inline-flex;align-items:center;gap:6px;color:var(--ink);font-weight:700;"
   "text-decoration:none;font-size:14.5px}"
-  ".tick{width:56px;height:56px;border-radius:50%;background:var(--glass-strong);"
-  "backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--border);"
-  "display:grid;place-items:center;margin:0 auto 4px}"
+  ".tick{width:56px;height:56px;border-radius:50%;background:var(--ink);"
+  "box-shadow:var(--out);display:grid;place-items:center;margin:0 auto 4px}"
   ".tick svg{width:26px;height:26px;stroke:#fff;fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}"
   "</style>";
 
@@ -304,7 +319,7 @@ inline String HSCRFace::pageOrderForm() {
             "<div class='card'>"
             "<span class='icon'><svg viewBox='0 0 24 24'>" + String(SERVICES[i].icon) + "</svg></span>"
             "<span><b>" + String(SERVICES[i].label) + "</b>"
-            "<span>" + String(SERVICES[i].desc) + "</span></span>"
+            "<span class='muted-text'>" + String(SERVICES[i].desc) + "</span></span>"
             "</div></label>";
   }
 
