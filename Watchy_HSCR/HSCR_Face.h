@@ -61,13 +61,22 @@
 static GxEPD2_BW<GxEPD2_154_D67, GxEPD2_154_D67::HEIGHT> display(
     GxEPD2_154_D67(PIN_CS, PIN_DC, PIN_RES, PIN_BUSY));
 
-// SERVICES: wording mirrors the SERVICES map in hscr-portal.html so the
-// phrasing matches, even though this page is served entirely by the watch.
-struct ServiceLabel { const char *key; const char *label; const char *watchText; };
+// SERVICES: wording (and icons) mirror the SERVICES map in hscr-portal.html
+// so the phrasing matches, even though this page is served entirely by the
+// watch. `icon` is the inner markup of a 0-24 viewBox SVG (stroke style).
+struct ServiceLabel {
+  const char *key, *label, *desc, *watchText, *doneText, *icon;
+};
 static const ServiceLabel SERVICES[] = {
-  { "payment", "Make payment",   "PAYMENT NEEDED AT TABLE " },
-  { "waiter",  "Request waiter", "WAITER NEEDED AT TABLE "  },
-  { "order",   "Make an order",  "ORDER REQUEST AT TABLE "  },
+  { "payment", "Make payment", "Bring the bill and card machine",
+    "PAYMENT NEEDED AT TABLE ", "The bill is on its way to table ",
+    "<rect x='2.5' y='5.5' width='19' height='13' rx='2.5'/><path d='M2.5 10h19'/><path d='M6 14.5h3.5'/>" },
+  { "waiter", "Request waiter", "Someone comes to your table",
+    "WAITER NEEDED AT TABLE ", "A waiter is heading to table ",
+    "<path d='M3.5 17.5h17'/><path d='M4.8 14.2a7.2 7.2 0 0 1 14.4 0z'/><path d='M12 4v3'/><circle cx='12' cy='3.2' r='1.1'/>" },
+  { "order", "Make an order", "Ready to order food or drinks",
+    "ORDER REQUEST AT TABLE ", "A waiter will take your order at table ",
+    "<path d='M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z'/><path d='M14.5 3v4.5H19'/><path d='M8.5 12.5h7M8.5 16.5h4.5'/>" },
 };
 static const int SERVICES_COUNT = sizeof(SERVICES) / sizeof(SERVICES[0]);
 
@@ -76,6 +85,13 @@ static const char *serviceWatchText(const String &key) {
     if (key == SERVICES[i].key) return SERVICES[i].watchText;
   }
   return "SERVICE NEEDED AT TABLE ";
+}
+
+static const char *serviceDoneText(const String &key) {
+  for (int i = 0; i < SERVICES_COUNT; i++) {
+    if (key == SERVICES[i].key) return SERVICES[i].doneText;
+  }
+  return "Staff is on the way to table ";
 }
 
 enum FaceState { FACE_IDLE, FACE_ALERT };
@@ -194,56 +210,132 @@ inline void HSCRFace::drawAlert() {
 
 // ---- web pages --------------------------------------------------------------
 
+// Shared <head>: iOS-style glassmorphism, entirely self-contained (no
+// external fonts/CDNs — the watch's AP has no internet to fetch them from).
+static const char PAGE_STYLE[] =
+  "<style>"
+  ":root{--glass:rgba(255,255,255,.14);--glass-strong:rgba(255,255,255,.22);"
+  "--border:rgba(255,255,255,.35);--muted:rgba(255,255,255,.72)}"
+  "*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}"
+  "html,body{margin:0;padding:0}"
+  "body{"
+  "font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,sans-serif;"
+  "color:#fff;min-height:100vh;display:flex;justify-content:center;"
+  "background:"
+  "radial-gradient(circle at 15% 8%,#8B5CF6 0%,transparent 45%),"
+  "radial-gradient(circle at 88% 18%,#EC4899 0%,transparent 42%),"
+  "radial-gradient(circle at 50% 105%,#3B82F6 0%,transparent 55%),"
+  "linear-gradient(160deg,#4B23AC 0%,#1B1530 100%);"
+  "background-attachment:fixed;"
+  "padding:max(28px,env(safe-area-inset-top)) 20px max(28px,env(safe-area-inset-bottom))"
+  "}"
+  ".wrap{width:100%;max-width:420px;display:flex;flex-direction:column;gap:18px}"
+  ".brand{display:flex;align-items:center;gap:12px}"
+  ".mark{width:44px;height:44px;border-radius:14px;background:var(--glass-strong);"
+  "backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--border);"
+  "display:grid;place-items:center;font-weight:800;font-size:14px}"
+  ".brand b{display:block;font-size:15px;font-weight:800}"
+  ".brand small{display:block;color:var(--muted);font-size:12.5px}"
+  ".glass{background:var(--glass);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);"
+  "border:1px solid var(--border);border-radius:26px;box-shadow:0 8px 32px rgba(0,0,0,.25)}"
+  "h1{font-size:24px;font-weight:800;margin:0 0 6px;letter-spacing:-.02em}"
+  ".lead{color:var(--muted);font-size:14.5px;margin:0;line-height:1.5}"
+  ".field{padding:16px 18px;display:flex;align-items:center;gap:14px}"
+  ".field label{font-size:13px;font-weight:600;color:var(--muted);flex:none}"
+  ".field input{flex:1;min-width:0;border:0;background:transparent;outline:none;"
+  "font-family:inherit;color:#fff;font-size:26px;font-weight:800;text-align:right}"
+  "input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{"
+  "-webkit-appearance:none;margin:0}"
+  ".services{display:flex;flex-direction:column;gap:12px}"
+  ".svc{position:relative;display:block}"
+  ".svc input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}"
+  ".svc .card{display:flex;align-items:center;gap:14px;padding:16px 18px;border-radius:20px;"
+  "background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);"
+  "border:1px solid var(--border);transition:background .18s ease,border-color .18s ease,transform .12s ease}"
+  ".svc input:checked~.card{background:linear-gradient(135deg,rgba(139,92,246,.55),rgba(236,72,153,.35));"
+  "border-color:rgba(255,255,255,.7)}"
+  ".svc input:active~.card{transform:scale(.98)}"
+  ".icon{width:42px;height:42px;flex:none;border-radius:13px;background:rgba(255,255,255,.18);"
+  "display:grid;place-items:center}"
+  ".icon svg{width:20px;height:20px;stroke:#fff;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}"
+  ".card b{display:block;font-size:15.5px;font-weight:700}"
+  ".card span{display:block;font-size:12px;color:var(--muted);margin-top:2px}"
+  "button{width:100%;padding:17px;border:0;border-radius:20px;font-family:inherit;"
+  "background:linear-gradient(135deg,#8B5CF6,#6D3BE4);color:#fff;font-size:16px;font-weight:700;"
+  "box-shadow:0 10px 24px rgba(109,59,228,.45)}"
+  "button:active{transform:scale(.98)}"
+  "a.back{display:inline-flex;align-items:center;gap:6px;color:#fff;font-weight:700;"
+  "text-decoration:none;font-size:14.5px}"
+  ".tick{width:56px;height:56px;border-radius:50%;background:var(--glass-strong);"
+  "backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--border);"
+  "display:grid;place-items:center;margin:0 auto 4px}"
+  ".tick svg{width:26px;height:26px;stroke:#fff;fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}"
+  "</style>";
+
 inline String HSCRFace::pageOrderForm() {
   String html =
     "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<title>HSCR Table Service</title>"
-    "<style>"
-    "body{font-family:system-ui,sans-serif;background:#EEEBF5;color:#241C3D;"
-    "max-width:420px;margin:0 auto;padding:32px 24px}"
-    "h1{font-size:26px;margin:0 0 8px}"
-    "p{color:#6F6791;margin:0 0 24px}"
-    "label{display:block;font-weight:600;margin:0 0 6px;font-size:14px}"
-    "input[type=number]{width:100%;font-size:22px;padding:14px;border-radius:14px;"
-    "border:2px solid #C6BFD9;margin-bottom:22px;box-sizing:border-box}"
-    ".svc{display:block;width:100%;padding:16px;margin-bottom:12px;border-radius:16px;"
-    "border:2px solid #C6BFD9;background:#fff;font-size:16px;font-weight:600;text-align:left}"
-    "input[type=radio]{margin-right:10px;transform:scale(1.3)}"
-    "button{width:100%;padding:16px;margin-top:10px;border:0;border-radius:14px;"
-    "background:#6D3BE4;color:#fff;font-size:17px;font-weight:700}"
-    "</style></head><body>"
-    "<h1>HSCR Table Service</h1>"
-    "<p>Enter your table number and choose what you need.</p>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1,viewport-fit=cover'>"
+    "<title>HSCR Table Service</title>";
+  html += PAGE_STYLE;
+  html +=
+    "</head><body><div class='wrap'>"
+    "<div class='brand'><div class='mark'>HS</div>"
+    "<div><b>HSCR</b><small>Table service</small></div></div>"
+
+    "<div class='glass' style='padding:24px 22px'>"
+    "<h1>What do you need?</h1>"
+    "<p class='lead'>Confirm your table and choose a service &mdash; staff is notified instantly.</p>"
+    "</div>"
+
     "<form method='POST' action='/request'>"
-    "<label for='table'>Table number</label>"
-    "<input type='number' id='table' name='table' min='1' max='99' value='" + String(TABLE_NUMBER) + "' required>";
+    "<div class='glass field' style='margin-bottom:2px'>"
+    "<label for='table'>Table</label>"
+    "<input type='number' inputmode='numeric' id='table' name='table' min='1' max='99' "
+    "value='" + String(TABLE_NUMBER) + "' required>"
+    "</div>"
+
+    "<div class='services' style='margin-top:16px'>";
 
   for (int i = 0; i < SERVICES_COUNT; i++) {
-    html += "<label class='svc'><input type='radio' name='service' value='" + String(SERVICES[i].key) + "'"
-            + (i == 0 ? " checked" : "") + ">" + SERVICES[i].label + "</label>";
+    html += "<label class='svc'>"
+            "<input type='radio' name='service' value='" + String(SERVICES[i].key) + "'"
+            + (i == 0 ? " checked" : "") + ">"
+            "<div class='card'>"
+            "<span class='icon'><svg viewBox='0 0 24 24'>" + String(SERVICES[i].icon) + "</svg></span>"
+            "<span><b>" + String(SERVICES[i].label) + "</b>"
+            "<span>" + String(SERVICES[i].desc) + "</span></span>"
+            "</div></label>";
   }
 
-  html += "<button type='submit'>Send request</button></form></body></html>";
+  html +=
+    "</div>"
+    "<button type='submit' style='margin-top:20px'>Send request</button>"
+    "</form>"
+    "</div></body></html>";
   return html;
 }
 
 inline String HSCRFace::pageThanks(const String &table, const String &service) {
-  const char *label = serviceWatchText(service);
   String html =
     "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<title>Request sent</title>"
-    "<style>body{font-family:system-ui,sans-serif;background:#EEEBF5;color:#241C3D;"
-    "max-width:420px;margin:0 auto;padding:48px 24px;text-align:center}"
-    "h1{font-size:24px}p{color:#6F6791}"
-    "a{display:inline-block;margin-top:24px;color:#6D3BE4;font-weight:700}</style>"
-    "</head><body>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1,viewport-fit=cover'>"
+    "<title>Request sent</title>";
+  html += PAGE_STYLE;
+  html +=
+    "</head><body><div class='wrap'>"
+    "<div class='brand'><div class='mark'>HS</div>"
+    "<div><b>HSCR</b><small>Table service</small></div></div>"
+
+    "<div class='glass' style='padding:32px 24px;text-align:center'>"
+    "<div class='tick'><svg viewBox='0 0 24 24'><path d='M4 12.5l5.5 5.5L20 6.5'/></svg></div>"
     "<h1>Request sent</h1>"
-    "<p>" + String(label) + table + "</p>"
-    "<p>Your waiter's watch is buzzing now.</p>"
-    "<a href='/'>&larr; Send another request</a>"
-    "</body></html>";
+    "<p class='lead'>" + String(serviceDoneText(service)) + table + ".</p>"
+    "<p class='lead' style='margin-top:6px'>Your waiter's watch is buzzing now.</p>"
+    "</div>"
+
+    "<a class='back' href='/'>&larr; Send another request</a>"
+    "</div></body></html>";
   return html;
 }
 
@@ -257,6 +349,8 @@ inline void HSCRFace::startAlert(const String &table, const String &service) {
 }
 
 inline void HSCRFace::resolveAlert() {
+  Serial.printf("MENU pressed -> resolved table=%s service=%s\n",
+                activeTable_.c_str(), activeService_.c_str());
   state_ = FACE_IDLE;
   digitalWrite(PIN_VIB, LOW);
   drawIdle();
@@ -276,6 +370,7 @@ inline void HSCRFace::vibratePump() {
 
 inline void HSCRFace::setupRoutes() {
   server_.on("/", HTTP_GET, [this]() {
+    Serial.printf("GET / from %s\n", server_.client().remoteIP().toString().c_str());
     server_.send(200, "text/html", pageOrderForm());
   });
 
@@ -283,6 +378,7 @@ inline void HSCRFace::setupRoutes() {
     String table = server_.arg("table");
     String service = server_.arg("service");
     table.trim();
+    Serial.printf("POST /request table=\"%s\" service=\"%s\"\n", table.c_str(), service.c_str());
 
     bool validTable = table.length() > 0 && table.length() <= 2;
     for (size_t i = 0; validTable && i < table.length(); i++) {
@@ -294,10 +390,12 @@ inline void HSCRFace::setupRoutes() {
     }
 
     if (!validTable || !validService) {
+      Serial.println("  -> rejected (invalid table/service)");
       server_.send(400, "text/plain", "Please choose a table number and a service.");
       return;
     }
 
+    Serial.println("  -> accepted, alert started");
     server_.send(200, "text/html", pageThanks(table, service));
     startAlert(table, service);
   });
@@ -309,12 +407,14 @@ inline void HSCRFace::setupRoutes() {
     "/ncsi.txt", "/connecttest.txt", "/success.txt", "/fwlink"
   };
   for (const char *path : captivePaths) {
-    server_.on(path, HTTP_GET, [this]() {
+    server_.on(path, HTTP_GET, [this, path]() {
+      Serial.printf("captive-portal probe %s -> redirecting to /\n", path);
       server_.sendHeader("Location", "http://" + WiFi.softAPIP().toString() + "/", true);
       server_.send(302, "text/plain", "");
     });
   }
   server_.onNotFound([this]() {
+    Serial.printf("unhandled %s -> redirecting to /\n", server_.uri().c_str());
     server_.sendHeader("Location", "http://" + WiFi.softAPIP().toString() + "/", true);
     server_.send(302, "text/plain", "");
   });
