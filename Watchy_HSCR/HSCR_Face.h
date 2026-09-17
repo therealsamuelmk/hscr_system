@@ -21,7 +21,6 @@
 #include <GxEPD2_BW.h>
 #include <Fonts/FreeMonoBold9pt7b.h>
 #include <Fonts/FreeMonoBold12pt7b.h>
-#include <Fonts/FreeSansBold24pt7b.h>
 #include <WiFi.h>
 #include <DNSServer.h>
 #include <WebServer.h>
@@ -156,25 +155,12 @@ inline void HSCRFace::drawIdle() {
     display.setTextColor(GxEPD_BLACK);
     printCentered("HSCR SYSTEM", 20);
 
-    // Middle: how to join and where to go — still needed so a guest
-    // actually knows what to connect to.
+    // Middle: no WiFi details needed here — the network itself is already
+    // visible to any nearby phone's own WiFi scan.
     display.setTextColor(GxEPD_WHITE);
-    display.setFont(&FreeMonoBold9pt7b);
-    printCentered("JOIN WIFI TO ORDER", 50);
-
-    display.drawLine(12, 62, SCR_W - 12, 62, GxEPD_WHITE);
-
     display.setFont(&FreeMonoBold12pt7b);
-    printCentered(apSsid_, 84);
-
-    display.setFont(&FreeMonoBold9pt7b);
-    printCentered(strlen(AP_PASSWORD) ? "PASSWORD: " AP_PASSWORD : "(OPEN NETWORK)", 104);
-
-    display.drawLine(12, 118, SCR_W - 12, 118, GxEPD_WHITE);
-    display.setCursor(14, 138);
-    display.print("THEN VISIT:");
-    display.setCursor(14, 156);
-    display.print(WiFi.softAPIP().toString());
+    printCentered("INTERACT WITH", 96);
+    printCentered("CUSTOMERS", 118);
 
     // Bottom banner: always "WAITING FOR CUSTOMER REQUEST".
     display.fillRect(0, 160, SCR_W, SCR_H - 160, GxEPD_WHITE);
@@ -199,11 +185,16 @@ inline void HSCRFace::drawAlert() {
     printCentered("SERVICE NEEDED", 20);
 
     display.setTextColor(GxEPD_BLACK);
-    display.setFont(&FreeSansBold24pt7b);
-    printCentered("TABLE " + activeTable_, 78);
+    // Smaller than a full-size headline on purpose: at 24pt "TABLE 20"
+    // (or any two-digit table) started crowding/overlapping the edges.
+    // 12pt stays comfortably on one line all the way up to "TABLE 99".
+    display.setFont(&FreeMonoBold12pt7b);
+    printCentered("TABLE " + activeTable_, 56);
+
+    display.drawLine(12, 68, SCR_W - 12, 68, GxEPD_BLACK);
 
     display.setFont(&FreeMonoBold9pt7b);
-    display.setCursor(10, 115);
+    display.setCursor(10, 90);
     display.print(String(label) + activeTable_);
 
     display.drawLine(12, 150, SCR_W - 12, 150, GxEPD_BLACK);
