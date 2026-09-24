@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HSCR — Table service, reimagined</title>
+<meta name="description" content="HSCR is a wearable table-service system for Zambian hospitality. No internet, no app, no data bundle — a guest scans a QR code and the waiter's watch buzzes.">
+<link rel="icon" href="data:,">
+<style>
+:root{
+  --ink:#14101F;--muted:#5E5872;--line:#E6E1F2;--soft:#F6F3FD;
+  --brand:#5B2FD6;--brand-d:#3B1E9E;--brand-l:#EFE9FF;--bg:#FBFAFE;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;line-height:1.5}
+img{max-width:100%}
+a{color:inherit}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+section{padding:96px 0}
+h1,h2,h3{margin:0;font-weight:800;letter-spacing:-.025em}
+h2{font-size:36px;line-height:1.15}
+h3{font-size:19px}
+p{margin:0}
+.kicker{font-size:12.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--brand);margin-bottom:12px}
+.lead{font-size:18px;line-height:1.6;color:var(--muted);max-width:640px}
+.center{text-align:center;margin-left:auto;margin-right:auto}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:14px 24px;border-radius:14px;font-weight:700;font-size:15.5px;text-decoration:none;border:0;cursor:pointer;font-family:inherit}
+.btn-primary{background:var(--ink);color:#fff;box-shadow:0 10px 24px rgba(20,16,31,.18)}
+.btn-primary:hover{background:var(--brand-d)}
+.btn-ghost{background:#fff;color:var(--ink);border:1.5px solid var(--line)}
+.btn-ghost:hover{border-color:var(--brand)}
+.pill{display:inline-flex;align-items:center;gap:8px;background:var(--brand-l);color:var(--brand-d);font-size:13px;font-weight:700;padding:7px 14px;border-radius:999px}
+.ic{flex:none}
+
+/* nav */
+.nav{position:sticky;top:0;z-index:40;background:rgba(251,250,254,.85);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.nav .wrap{display:flex;align-items:center;justify-content:space-between;height:74px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:17px;letter-spacing:.01em;text-decoration:none;color:var(--ink)}
+.logo .mark{width:34px;height:34px;border-radius:10px;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:800}
+.navlinks{display:flex;gap:34px;font-size:15px;font-weight:600}
+.navlinks a{text-decoration:none;color:var(--muted)}
+.navlinks a:hover{color:var(--ink)}
+.navcta{display:flex;align-items:center;gap:18px}
+.burger{display:none}
+
+/* hero */
+.hero{padding-top:76px;overflow:hidden}
+.hero .wrap{display:grid;grid-template-columns:1.05fr .95fr;gap:56px;align-items:center}
+.hero h1{font-size:58px;line-height:1.04;margin:18px 0 22px}
+.hero .lead{margin-bottom:34px}
+.hero-cta{display:flex;gap:14px;flex-wrap:wrap}
+.hero-art{position:relative;display:flex;justify-content:center}
+
+/* stats band */
+.stats{padding:0 0 96px}
+.statgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:22px;overflow:hidden}
+.statgrid div{background:#fff;padding:30px 26px}
+.statgrid b{display:block;font-size:32px;font-weight:800;letter-spacing:-.02em;color:var(--brand-d)}
+.statgrid span{font-size:13.5px;color:var(--muted);line-height:1.4;display:block;margin-top:6px}
+.src{font-size:12px;color:#9891AE;margin-top:16px}
+
+/* about */
+.about{background:var(--ink);color:#fff;position:relative;overflow:hidden}
+.about .wrap{position:relative;z-index:2;display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center}
+.about .kicker{color:#C6B8F5}
+.about h2{color:#fff;font-size:34px}
+.about .lead{color:#CFC8E6;margin-top:18px}
+.about .lead + .lead{margin-top:12px}
+.skyline{position:absolute;left:0;right:0;bottom:0;height:130px;opacity:.5;z-index:1}
+.flagbar{display:flex;height:6px;width:120px;border-radius:4px;overflow:hidden;margin-top:26px}
+.flagbar i{flex:1}
+.founder{display:flex;align-items:center;gap:14px;margin-top:28px;padding-top:24px;border-top:1px solid rgba(255,255,255,.14)}
+.av{width:46px;height:46px;border-radius:50%;background:var(--brand);display:grid;place-items:center;font-weight:800;font-size:15px;flex:none}
+.founder b{display:block;font-size:15px}
+.founder span{font-size:13.5px;color:#A9A1C4}
+
+/* how it works */
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:22px;margin-top:52px}
+.step{background:#fff;border:1px solid var(--line);border-radius:22px;padding:26px 22px;position:relative}
+.step .num{position:absolute;top:20px;right:20px;width:28px;height:28px;border-radius:50%;background:var(--brand-l);color:var(--brand-d);font-weight:800;font-size:13px;display:grid;place-items:center}
+.step .vis{height:150px;display:flex;align-items:center;justify-content:center;margin-bottom:18px}
+.step h3{margin-bottom:8px}
+.step p{font-size:14.5px;color:var(--muted);line-height:1.5}
+
+/* advantages */
+.advgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:52px}
+.adv{background:var(--soft);border-radius:20px;padding:28px 26px}
+.adv .ico{width:46px;height:46px;border-radius:13px;background:#fff;color:var(--brand);display:grid;place-items:center;margin-bottom:16px;box-shadow:0 2px 8px rgba(91,47,214,.1)}
+.adv h3{margin-bottom:8px;font-size:17.5px}
+.adv p{font-size:14.5px;color:var(--muted);line-height:1.55}
+
+/* compare */
+.cmp{width:100%;border-collapse:collapse;margin-top:44px;font-size:14.5px}
+.cmp th{font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:#9891AE;text-align:left;padding:0 14px 12px;font-weight:700}
+.cmp td{padding:16px 14px;border-top:1px solid var(--line);line-height:1.4;vertical-align:top}
+.cmp td:first-child{font-weight:800}
+.cmp .y{color:#0E7A3A;font-weight:700}.cmp .n{color:#B42318;font-weight:700}.cmp .m{color:#8A6A00;font-weight:700}
+.cmp tr.us td{background:var(--brand-l)}
+.cmp tr.us td:first-child{border-radius:14px 0 0 14px;color:var(--brand-d)}
+.cmp tr.us td:last-child{border-radius:0 14px 14px 0}
+.cmp-wrap{overflow-x:auto}
+
+/* pricing */
+.pricing{background:var(--soft)}
+.pricegrid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:52px}
+.ptier{background:#fff;border-radius:24px;padding:36px 32px;border:1px solid var(--line)}
+.ptier.feat{border:2px solid var(--ink);position:relative}
+.ptier .pill{margin-bottom:18px}
+.ptier .amt{font-size:42px;font-weight:800;letter-spacing:-.02em}
+.ptier .amt span{font-size:15px;font-weight:600;color:var(--muted)}
+.ptier .zmw{font-size:13.5px;color:var(--muted);margin-top:2px}
+.ptier ul{list-style:none;margin:26px 0 30px;padding:0}
+.ptier li{display:flex;gap:10px;font-size:14.5px;margin-bottom:12px;color:#2E2942}
+.ptier li svg{flex:none;margin-top:2px;color:var(--brand)}
+.trial{text-align:center;margin-top:28px;font-size:14.5px;color:var(--muted)}
+
+/* cta */
+.cta{background:var(--ink);color:#fff;text-align:center}
+.cta h2{color:#fff;font-size:38px;max-width:640px;margin:0 auto}
+.cta .lead{color:#CFC8E6;margin:18px auto 34px}
+.cta .hero-cta{justify-content:center}
+.btn-primary.on-dark{background:#fff;color:var(--ink)}
+.btn-ghost.on-dark{background:transparent;color:#fff;border-color:rgba(255,255,255,.3)}
+
+footer{padding:40px 0;border-top:1px solid var(--line)}
+footer .wrap{display:flex;justify-content:space-between;align-items:center;font-size:13.5px;color:#9891AE;flex-wrap:wrap;gap:12px}
+footer a{text-decoration:none;color:#9891AE}
+footer .flinks{display:flex;gap:22px}
+
+/* watch + phone mockups (shared with the pitch deck's visual language) */
+.watchwrap{display:flex;flex-direction:column;align-items:center;flex:none}
+.strap{width:74px;height:56px;background:#2B2734;border-radius:13px 13px 5px 5px}
+.strap.bot{border-radius:5px 5px 13px 13px}
+.strap.top{margin-bottom:-8px}.strap.bot{margin-top:-8px}
+.bezel{background:#0E0C14;border-radius:30px;padding:18px;box-shadow:0 14px 34px rgba(20,16,31,.35),inset 0 0 0 2px #3A3546;position:relative;z-index:2}
+.eink{width:154px;height:154px;position:relative;overflow:hidden;font-family:"Courier New",Menlo,monospace;font-weight:700;background:#fff;color:#000}
+.eink.idle{background:#000;color:#fff}
+.eink div{position:absolute;left:0;right:0;text-align:center;white-space:nowrap}
+.e-top{top:0;height:22px;background:#fff;color:#000;font-size:13px;line-height:22px}
+.e-mid{top:52px;font-size:13px;line-height:17px}
+.e-bot{top:122px;height:32px;background:#fff;color:#000;font-size:9.5px;line-height:14px;padding-top:2px}
+.e-atop{top:0;height:22px;background:#000;color:#fff;font-size:13px;line-height:22px}
+.e-table{top:28px;font-size:13px;line-height:17px}
+.e-rule{height:1px;background:#000;left:9px!important;right:9px!important}
+.e-msg{top:56px;font-size:9.5px;line-height:12px;text-align:left!important;left:8px!important}
+.e-foot{top:120px;font-size:9.5px;line-height:14px;text-align:left!important;left:11px!important}
+.phone{border-radius:26px;background:#0E0C14;padding:8px;box-shadow:0 14px 34px rgba(20,16,31,.28);flex:none;width:190px}
+.phone img{display:block;width:100%;border-radius:18px}
+
+@media (max-width:920px){
+  section{padding:64px 0}
+  .navlinks,.burger-x{display:none}
+  .hero{padding-top:48px}
+  .hero .wrap{grid-template-columns:1fr;gap:44px}
+  .hero h1{font-size:38px}
+  .hero-art{order:-1}
+  .statgrid{grid-template-columns:1fr 1fr}
+  .about .wrap{grid-template-columns:1fr}
+  .steps{grid-template-columns:1fr 1fr}
+  .advgrid{grid-template-columns:1fr}
+  .pricegrid{grid-template-columns:1fr}
+  .cta h2{font-size:28px}
+  h2{font-size:28px}
+}
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="logo" href="#top"><span class="mark">HS</span>HSCR</a>
+    <nav class="navlinks">
+      <a href="#about">About</a>
+      <a href="#how">How it works</a>
+      <a href="#advantages">Advantages</a>
+      <a href="#pricing">Pricing</a>
+    </nav>
+    <div class="navcta"><a class="btn btn-primary" href="#contact">Get in touch</a></div>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- HERO -->
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <span class="pill">
+        <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
+        Built for Zambian hospitality
+      </span>
+      <h1>Service on<br>every wrist.</h1>
+      <p class="lead">HSCR is a wearable table-service system: a guest scans a code, taps what they need, and the waiter's watch buzzes &mdash; with no internet, no app and no data bundle involved anywhere in the loop.</p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="#how">See how it works</a>
+        <a class="btn btn-ghost" href="#contact">Book a demo</a>
+      </div>
+    </div>
+    <div class="hero-art" aria-hidden="true">
+      <svg viewBox="0 0 520 460" width="100%" style="max-width:460px">
+        <defs>
+          <style>
+            .hr-arc{fill:none;stroke:#5B2FD6;stroke-width:3;stroke-dasharray:2 10;stroke-linecap:round;opacity:.55}
+          </style>
+        </defs>
+        <ellipse cx="260" cy="410" rx="220" ry="26" fill="#EFE9FF"/>
+        <circle cx="150" cy="270" r="150" fill="#F6F3FD"/>
+        <g transform="translate(60,190)">
+          <rect x="0" y="0" width="170" height="170" rx="26" fill="#fff" stroke="#E6E1F2" stroke-width="1.5"/>
+          <g transform="translate(28,28)" fill="#14101F">
+            <rect x="0" y="0" width="34" height="34" rx="6"/><rect x="10" y="10" width="14" height="14" rx="3" fill="#fff"/>
+            <rect x="80" y="0" width="34" height="34" rx="6"/><rect x="90" y="10" width="14" height="14" rx="3" fill="#fff"/>
+            <rect x="0" y="80" width="34" height="34" rx="6"/><rect x="10" y="90" width="14" height="14" rx="3" fill="#fff"/>
+            <rect x="46" y="46" width="14" height="14" rx="3"/><rect x="70" y="46" width="10" height="10" rx="2"/>
+            <rect x="46" y="70" width="10" height="10" rx="2"/><rect x="70" y="70" width="14" height="14" rx="3"/>
+            <rect x="94" y="66" width="20" height="20" rx="4"/><rect x="94" y="94" width="20" height="20" rx="4"/>
+          </g>
+          <text x="85" y="158" text-anchor="middle" font-family="-apple-system,Arial,sans-serif" font-size="13" font-weight="700" fill="#6E6787">TABLE 7</text>
+        </g>
+        <path class="hr-arc" d="M225,235 C 300,190 330,150 360,110"/>
+        <path class="hr-arc" d="M235,255 C 320,220 360,180 400,150" opacity=".35"/>
+        <g transform="translate(330,40)">
+          <rect x="18" y="0" width="76" height="58" rx="14" fill="#2B2734"/>
+          <rect x="26" y="10" width="60" height="60" rx="18" fill="#0E0C14"/>
+          <rect x="34" y="18" width="44" height="44" rx="10" fill="#14101F"/>
+          <rect x="34" y="18" width="44" height="14" rx="4" fill="#fff"/>
+          <rect x="34" y="86" width="76" height="58" rx="14" fill="#2B2734" transform="translate(-8,-8)"/>
+          <circle cx="98" cy="14" r="15" fill="#5B2FD6"/>
+          <path d="M91,14 l5,5 l9,-10" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </g>
+        <g transform="translate(300,140)" stroke="#3B1E9E" stroke-width="2.6" fill="none" stroke-linecap="round" opacity=".8">
+          <path d="M0,16 q8,-16 16,0"/><path d="M8,20 q8,-20 16,0"/><path d="M16,24 q8,-24 16,0"/>
+        </g>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<!-- STATS -->
+<section class="stats">
+  <div class="wrap">
+    <div class="statgrid">
+      <div><b>19.6M</b><span>people in Zambia, with hospitality concentrated in Lusaka and the Copperbelt</span></div>
+      <div><b>40,933</b><span>accommodation &amp; food establishments nationwide</span></div>
+      <div><b>+11.1%</b><span>sector growth in 2024 &mdash; almost 3&times; the wider economy</span></div>
+      <div><b>26.2M</b><span>mobile connections, yet only ~33% of people are reliably online</span></div>
+    </div>
+    <p class="src">Sources: ZamStats 2022 Census &amp; Economic Establishment Census 2025; ZICTA Annual Market Report 2025.</p>
+  </div>
+</section>
+
+<!-- ABOUT -->
+<section class="about" id="about">
+  <svg class="skyline" viewBox="0 0 1200 130" preserveAspectRatio="none" aria-hidden="true">
+    <rect x="0" y="60" width="70" height="70" fill="#241C3D"/>
+    <rect x="80" y="30" width="50" height="100" fill="#241C3D"/>
+    <rect x="140" y="75" width="40" height="55" fill="#241C3D"/>
+    <rect x="190" y="45" width="60" height="85" fill="#241C3D"/>
+    <rect x="260" y="90" width="45" height="40" fill="#241C3D"/>
+    <rect x="315" y="20" width="55" height="110" fill="#241C3D"/>
+    <rect x="380" y="65" width="70" height="65" fill="#241C3D"/>
+    <rect x="460" y="40" width="40" height="90" fill="#241C3D"/>
+    <rect x="510" y="80" width="60" height="50" fill="#241C3D"/>
+    <rect x="580" y="15" width="50" height="115" fill="#241C3D"/>
+    <rect x="640" y="70" width="65" height="60" fill="#241C3D"/>
+    <rect x="715" y="50" width="45" height="80" fill="#241C3D"/>
+    <rect x="770" y="85" width="55" height="45" fill="#241C3D"/>
+    <rect x="835" y="35" width="60" height="95" fill="#241C3D"/>
+    <rect x="905" y="70" width="40" height="60" fill="#241C3D"/>
+    <rect x="955" y="25" width="55" height="105" fill="#241C3D"/>
+    <rect x="1020" y="80" width="50" height="50" fill="#241C3D"/>
+    <rect x="1080" y="55" width="60" height="75" fill="#241C3D"/>
+    <rect x="1150" y="90" width="50" height="40" fill="#241C3D"/>
+  </svg>
+  <div class="wrap">
+    <div>
+      <div class="kicker">About HSCR</div>
+      <h2>Built in Zambia, for the way Zambian venues actually run.</h2>
+      <p class="lead">Most table-service technology assumes stable venue Wi-Fi, a data bundle, and power that never cuts out. In Zambia, none of those can be counted on &mdash; so we built the opposite: a watch that creates its own network and needs nothing from the venue at all.</p>
+      <p class="lead">Founded to make good service possible everywhere from a Lusaka bistro to a Livingstone lodge, without asking the owner to first solve their internet.</p>
+      <div class="flagbar"><i style="background:#198A00"></i><i style="background:#EF7D00"></i><i style="background:#DE2010"></i><i style="background:#FFFFFF"></i></div>
+      <div class="founder">
+        <div class="av">SM</div>
+        <div><b>Samuel Mkandawire Mbwani</b><span>Founder — product, firmware &amp; platform</span></div>
+      </div>
+    </div>
+    <div class="hero-art">
+      <div style="display:flex;gap:26px;align-items:flex-end">
+        <div class="watchwrap"><div class="strap top"></div><div class="bezel"><div class="eink idle">
+          <div class="e-top">HSCR SYSTEM</div><div class="e-mid">INTERACT WITH<br>CUSTOMERS</div>
+          <div class="e-bot">WAITING FOR<br>CUSTOMER REQUEST</div>
+        </div></div><div class="strap bot"></div></div>
+        <div class="watchwrap"><div class="strap top"></div><div class="bezel"><div class="eink">
+          <div class="e-atop">SERVICE NEEDED</div><div class="e-table">TABLE 7</div><div class="e-rule" style="top:50px"></div>
+          <div class="e-msg">WAITER NEEDED AT<br>TABLE 7</div><div class="e-rule" style="top:110px"></div>
+          <div class="e-foot">&gt; PRESS MENU<br>&nbsp; WHEN DELIVERED</div>
+        </div></div><div class="strap bot"></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how">
+  <div class="wrap">
+    <div class="kicker center">How it works</div>
+    <h2 class="center">Four steps, about ten seconds</h2>
+    <p class="lead center">No sign-up, no download, no data spend for the guest — and nothing for the venue to configure beyond charging the watch.</p>
+    <div class="steps">
+      <div class="step"><div class="num">1</div>
+        <div class="vis">
+          <svg width="110" height="110" viewBox="0 0 24 24" fill="none" stroke="#14101F" stroke-width="1.6"><rect x="2" y="2" width="7" height="7" rx="1.2"/><rect x="15" y="2" width="7" height="7" rx="1.2"/><rect x="2" y="15" width="7" height="7" rx="1.2"/><path d="M15 15h3v3M20 15v3h-3M15 20h3v-3"/></svg>
+        </div>
+        <h3>Scan</h3><p>A QR code at the table joins the watch's own Wi-Fi in one tap &mdash; the order page opens automatically.</p>
+      </div>
+      <div class="step"><div class="num">2</div>
+        <div class="vis"><div class="phone" style="width:110px"><img src="assets/guest-form.png" alt="Guest ordering screen"></div></div>
+        <h3>Choose</h3><p>The guest confirms their table and taps Make payment, Request waiter or Make an order.</p>
+      </div>
+      <div class="step"><div class="num">3</div>
+        <div class="vis"><div class="watchwrap" style="transform:scale(.82)"><div class="strap top"></div><div class="bezel"><div class="eink">
+          <div class="e-atop">SERVICE NEEDED</div><div class="e-table">TABLE 7</div><div class="e-rule" style="top:50px"></div>
+          <div class="e-msg">WAITER NEEDED AT<br>TABLE 7</div><div class="e-rule" style="top:110px"></div>
+          <div class="e-foot">&gt; PRESS MENU<br>&nbsp; WHEN DELIVERED</div>
+        </div></div><div class="strap bot"></div></div></div>
+        <h3>Buzz</h3><p>The watch vibrates repeatedly and shows the table and request until it's handled.</p>
+      </div>
+      <div class="step"><div class="num">4</div>
+        <div class="vis"><div class="phone" style="width:110px"><img src="assets/guest-sent.png" alt="Request confirmed screen"></div></div>
+        <h3>Deliver</h3><p>Staff serve the table and press a button. The guest sees confirmation; the watch resets.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ADVANTAGES -->
+<section id="advantages" style="background:var(--soft)">
+  <div class="wrap">
+    <div class="kicker center">Advantages</div>
+    <h2 class="center">Reliable where imported solutions aren't</h2>
+    <div class="advgrid">
+      <div class="adv"><div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a15 15 0 0 1 20 0"/><path d="M5.5 12.5a10 10 0 0 1 13 0"/><path d="M9 16a5 5 0 0 1 6 0"/><circle cx="12" cy="19.5" r="1"/></svg></div>
+        <h3>Fully offline</h3><p>Works straight through load-shedding and dead zones &mdash; there's nothing to connect to but the watch itself.</p></div>
+      <div class="adv"><div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg></div>
+        <h3>Nothing to install</h3><p>Guests use the browser already on their phone. Joining takes one QR scan &mdash; no app, no account.</p></div>
+      <div class="adv"><div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/></svg></div>
+        <h3>Impossible to miss</h3><p>A repeating vibration and an on-screen table number &mdash; not a beep across a noisy room.</p></div>
+      <div class="adv"><div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></div>
+        <h3>Built to be affordable</h3><p>Off-the-shelf electronics and a sunlight-readable e-paper screen keep unit cost low and battery life long.</p></div>
+      <div class="adv"><div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14a5 5 0 0 1 4.5 5"/></svg></div>
+        <h3>Locally supported</h3><p>Set up, spares and support from a team on the ground &mdash; not a call centre in another time zone.</p></div>
+      <div class="adv"><div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg></div>
+        <h3>One watch, one table</h3><p>Simple to reason about for staff: each watch belongs to a table, and shows exactly what that table needs.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- COMPARE -->
+<section>
+  <div class="wrap">
+    <div class="kicker center">Compared to the alternatives</div>
+    <h2 class="center">Pager-grade reliability, app-grade convenience</h2>
+    <div class="cmp-wrap">
+    <table class="cmp">
+      <thead><tr><th></th><th>Works without internet</th><th>No app for guests</th><th>Alerts staff on the move</th></tr></thead>
+      <tbody>
+        <tr><td>Waving / calling out</td><td class="y">Yes</td><td class="y">Yes</td><td class="n">No &mdash; needs eye contact</td></tr>
+        <tr><td>Imported pagers</td><td class="y">Yes</td><td class="y">Yes</td><td class="y">Yes</td></tr>
+        <tr><td>Cloud QR-ordering apps</td><td class="n">No &mdash; needs venue Wi-Fi &amp; data</td><td class="m">Browser-based</td><td class="m">Depends on staff devices</td></tr>
+        <tr class="us"><td>HSCR</td><td class="y">Yes</td><td class="y">Yes</td><td class="y">Yes &mdash; repeating wrist alert</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section class="pricing" id="pricing">
+  <div class="wrap">
+    <div class="kicker center">Pricing</div>
+    <h2 class="center">Priced for Zambian venues</h2>
+    <p class="lead center">Simple per-watch pricing in US dollar terms, billed in kwacha. Talk to us about a plan that fits your venue.</p>
+    <div class="pricegrid">
+      <div class="ptier">
+        <span class="pill">Own it</span>
+        <div class="amt">US$110<span> one-off, per watch</span></div>
+        <div class="zmw">≈ K2,120 &middot; includes table QR cards</div>
+        <ul>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>Watch, charging cable and table QR cards</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>US$6/month (≈K116) for support, replacement &amp; updates</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>Yours outright &mdash; lowest cost over time</li>
+        </ul>
+        <a class="btn btn-primary" href="#contact" style="width:100%;justify-content:center">Get started</a>
+      </div>
+      <div class="ptier feat">
+        <span class="pill">Rent it</span>
+        <div class="amt">US$10<span>/month, per watch</span></div>
+        <div class="zmw">≈ K193 &middot; nothing upfront</div>
+        <ul>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>No upfront cost &mdash; start with zero capital outlay</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>Support, replacement &amp; updates included</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>Cancel any time &mdash; ideal for a first trial</li>
+        </ul>
+        <a class="btn btn-primary" href="#contact" style="width:100%;justify-content:center">Get started</a>
+      </div>
+    </div>
+    <p class="trial">Most venues run one watch per waiter on shift. Ask about a free trial period for your first watches.</p>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta" id="contact">
+  <div class="wrap">
+    <h2>Let's put service on every wrist.</h2>
+    <p class="lead">Tell us about your venue and we'll bring a watch to try, no strings attached.</p>
+    <div class="hero-cta">
+      <a class="btn btn-primary on-dark" href="mailto:hello@hscr.online">Email hello@hscr.online</a>
+      <a class="btn btn-ghost on-dark" href="https://hscr.online">Try the live demo &rarr;</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>&copy; 2026 HSCR. Made in Zambia.</span>
+    <div class="flinks">
+      <a href="#about">About</a><a href="#pricing">Pricing</a><a href="https://hscr.online">Live demo</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

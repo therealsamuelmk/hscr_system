@@ -5,3 +5,7 @@ hscr-db.local.php
 Watchy_HSCR/settings.h
 
 .DS_Store
+
+# Investor pitch & other business documents — the repo is public, so keep
+# these local (they contain financial assumptions and funding ask).
+work/
