@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HSCR — Table service, reimagined</title>
-<meta name="description" content="HSCR is a wearable table-service system for Zambian hospitality. No internet, no app, no data bundle — a guest scans a QR code and the waiter's watch buzzes.">
+<title>HSCR by ServStack Tech Solutions</title>
+<meta name="description" content="HSCR is a wearable table-service system for Zambian hospitality, by ServStack Tech Solutions. No internet, no app, no data bundle — a guest scans a QR code and the waiter's watch buzzes.">
 <link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -54,8 +54,10 @@ p{margin:0}
 /* nav */
 .nav{background:var(--blue);position:sticky;top:0;z-index:40}
 .nav .wrap{display:flex;align-items:center;justify-content:space-between;height:78px}
-.logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:21px;text-decoration:none;color:#fff}
-.logo b{color:var(--green)}
+.logo{display:flex;flex-direction:column;line-height:1.15;text-decoration:none;color:#fff}
+.logo-main{font-weight:800;font-size:21px}
+.logo-main b{color:var(--green)}
+.logo-caption{font-size:10.5px;font-weight:600;color:#9FB3E8;letter-spacing:.02em}
 .navlinks{display:flex;gap:32px;font-size:15px;font-weight:600}
 .navlinks a{text-decoration:none;color:#D8E1FA}
 .navlinks a:hover,.navlinks a.active{color:#fff}
@@ -64,6 +66,10 @@ p{margin:0}
 .navphone .ic{width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.14);display:grid;place-items:center;flex:none}
 .navphone b{display:block;font-size:14px}
 .navphone span{color:#BFD0F5}
+.burger{display:none;width:40px;height:40px;border:0;border-radius:10px;background:rgba(255,255,255,.14);color:#fff;cursor:pointer;align-items:center;justify-content:center;flex:none}
+.mobile-menu{display:none;flex-direction:column;background:var(--blue-dk);padding:6px 24px 18px}
+.mobile-menu.open{display:flex}
+.mobile-menu a{color:#fff;text-decoration:none;font-weight:700;font-size:16px;padding:14px 0;border-top:1px solid rgba(255,255,255,.14)}
 
 /* hero */
 .hero{background:linear-gradient(120deg,#0B1440 0%,#122A7A 55%,var(--blue) 100%);color:#fff;padding:100px 0;position:relative;overflow:hidden}
@@ -110,8 +116,17 @@ p{margin:0}
 .e-rule{height:1px;background:#000;left:8px!important;right:8px!important}
 .e-msg{top:50px;font-size:8.5px;line-height:11px;text-align:left!important;left:7px!important}
 .e-foot{top:109px;font-size:8.5px;line-height:13px;text-align:left!important;left:10px!important}
-.phone{border-radius:24px;background:#0E0C14;padding:7px;box-shadow:0 14px 30px rgba(11,11,16,.24);flex:none;width:170px}
-.phone img{display:block;width:100%;border-radius:16px}
+/* iPhone 16 Pro Max frame (430:932 viewport ratio) with Dynamic Island */
+.iphone{position:relative;width:170px;aspect-ratio:430/932;flex:none;filter:drop-shadow(0 16px 30px rgba(11,11,16,.3))}
+.iphone .frame{position:absolute;inset:0;background:linear-gradient(155deg,#57575b 0%,#1c1c1e 42%,#08080a 100%);border-radius:19%/8.7%;padding:2.6%}
+.iphone .screen{position:relative;width:100%;height:100%;border-radius:16.5%/7.6%;overflow:hidden;background:#000}
+.iphone .screen img{display:block;width:100%;height:100%;object-fit:cover;object-position:top}
+.iphone .island{position:absolute;top:2.3%;left:50%;transform:translateX(-50%);width:34%;height:3.7%;background:#000;border-radius:999px;z-index:3;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+.iphone .side{position:absolute;background:#28282b;border-radius:2px 0 0 2px}
+.iphone .side.action{left:-2px;top:14.5%;width:3px;height:3%}
+.iphone .side.vol-up{left:-2px;top:19.5%;width:3px;height:5.2%}
+.iphone .side.vol-down{left:-2px;top:26%;width:3px;height:5.2%}
+.iphone .side.power{right:-2px;top:22.5%;width:3px;height:8%;border-radius:0 2px 2px 0}
 
 /* section heads */
 .shead{max-width:640px;margin:0 auto 56px;text-align:center}
@@ -125,10 +140,10 @@ p{margin:0}
 .adv .link{color:var(--blue);font-weight:700;font-size:13.5px;text-decoration:none}
 
 /* how it works - gallery tiles */
-.gallery{display:grid;grid-template-columns:repeat(4,1fr);gap:28px 26px}
-.gtile{position:relative;padding-top:10px}
+.gallery{display:grid;grid-template-columns:repeat(4,1fr);gap:28px 26px;align-items:stretch}
+.gtile{position:relative;padding-top:10px;display:flex;flex-direction:column}
 .gtile:before{content:"";position:absolute;top:0;left:16px;right:16px;height:18px;border-radius:18px 18px 0 0;background:var(--green)}
-.gtile .card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:30px 20px 26px;text-align:center;box-shadow:0 10px 26px rgba(11,11,16,.06)}
+.gtile .card{position:relative;flex:1;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:30px 20px 26px;text-align:center;box-shadow:0 10px 26px rgba(11,11,16,.06)}
 .gtile .vis{height:180px;display:flex;align-items:center;justify-content:center;margin-bottom:16px}
 .gtile .num{display:inline-flex;width:26px;height:26px;border-radius:50%;background:var(--blue-l);color:var(--blue);font-weight:800;font-size:12px;align-items:center;justify-content:center;margin-bottom:12px}
 .gtile h3{font-size:17px;margin-bottom:8px}
@@ -147,14 +162,14 @@ p{margin:0}
 
 /* pricing */
 .pricing{background:var(--card)}
-.pricegrid{display:grid;grid-template-columns:1fr 1fr;gap:26px}
-.ptier{background:#fff;border-radius:22px;padding:38px 34px;border:1px solid var(--line);box-shadow:0 10px 28px rgba(11,11,16,.05)}
+.pricegrid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;align-items:stretch}
+.ptier{background:#fff;border-radius:22px;padding:34px 28px;border:1px solid var(--line);box-shadow:0 10px 28px rgba(11,11,16,.05);display:flex;flex-direction:column}
 .ptier.feat{border:2px solid var(--blue)}
-.ptag{display:inline-block;background:var(--mint);color:var(--green-dk);font-weight:700;font-size:12.5px;padding:6px 14px;border-radius:999px;margin-bottom:18px}
+.ptag{display:inline-block;background:var(--mint);color:var(--green-dk);font-weight:700;font-size:12px;padding:6px 14px;border-radius:999px;margin-bottom:18px;white-space:nowrap}
 .ptier.feat .ptag{background:var(--blue-l);color:var(--blue)}
-.ptier .amt{font-size:42px;font-weight:800}
-.ptier .amt span{font-size:14.5px;font-weight:600;color:var(--muted)}
-.ptier .zmw{font-size:13.5px;color:var(--muted);margin-top:4px}
+.ptier .amt{font-size:34px;font-weight:800;letter-spacing:-.01em}
+.ptier .zmw{font-size:13.5px;color:var(--muted);margin-top:6px}
+.ptier ul{flex:1}
 .ptier ul{list-style:none;margin:24px 0 30px;padding:0}
 .ptier li{display:flex;gap:10px;font-size:14.5px;margin-bottom:12px;color:#2b2b33}
 .ptier li svg{flex:none;margin-top:2px;color:var(--green-dk)}
@@ -191,15 +206,20 @@ footer li a:hover{color:#fff}
 .fbottom b{color:var(--green)}
 
 @media (max-width:960px){
-  section{padding:64px 0}
+  section{padding:56px 0}
   .navlinks,.navphone{display:none}
+  .burger{display:flex}
   .topbar .left span:nth-child(2){display:none}
-  .hero{padding-top:56px}
-  .hero .wrap{grid-template-columns:1fr;gap:40px}
-  .hero h1{font-size:36px}
+  .hero{padding-top:48px}
+  .hero .wrap{grid-template-columns:1fr;gap:36px}
+  .hero h1{font-size:34px}
+  .hero-art svg{max-width:320px}
   .statgrid{grid-template-columns:1fr 1fr}
+  .statgrid div{flex-direction:column;gap:6px;padding:24px 18px}
+  .statgrid b{font-size:26px}
   .about .wrap{grid-template-columns:1fr}
-  .about-stack{height:340px;margin-bottom:10px}
+  .about-stack{position:static;height:auto;display:flex;flex-direction:column;align-items:center;gap:22px;margin-bottom:12px}
+  .about-stack .pc1,.about-stack .pc2{position:static;width:230px}
   .advgrid{grid-template-columns:1fr}
   .gallery{grid-template-columns:1fr 1fr}
   .pricegrid{grid-template-columns:1fr}
@@ -208,6 +228,9 @@ footer li a:hover{color:#fff}
   .cpanel{padding:40px 24px}
   .cpanel h2{font-size:26px}
   h2{font-size:28px}
+}
+@media (max-width:520px){
+  .gallery{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -229,7 +252,10 @@ footer li a:hover{color:#fff}
 
 <header class="nav">
   <div class="wrap">
-    <a class="logo" href="#top">HS<b>CR</b></a>
+    <a class="logo" href="#top">
+      <span class="logo-main">HS<b>CR</b></span>
+      <span class="logo-caption">by ServStack Tech Solutions</span>
+    </a>
     <nav class="navlinks">
       <a href="#about">About</a>
       <a href="#how">How it works</a>
@@ -238,12 +264,23 @@ footer li a:hover{color:#fff}
       <a href="#contact">Contact</a>
     </nav>
     <div class="navcta">
+      <button class="burger" id="burgerBtn" aria-label="Open menu" aria-expanded="false" aria-controls="mobileMenu">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
       <div class="navphone">
         <span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.2" stroke-linecap="round"><path d="M4 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L14 13l5 2v4a2 2 0 0 1-2 2C9 21 3 15 3 6a2 2 0 0 1 1-2z"/></svg></span>
         <div><span>Call us</span><b>+260 77 121 9900</b></div>
       </div>
       <a class="btn btn-green btn-sm" href="#contact">Get in touch</a>
     </div>
+  </div>
+  <div class="mobile-menu" id="mobileMenu">
+    <a href="#about">About</a>
+    <a href="#how">How it works</a>
+    <a href="#advantages">Advantages</a>
+    <a href="#pricing">Pricing</a>
+    <a href="#contact">Contact</a>
+    <a href="tel:+260771219900">Call +260 77 121 9900</a>
   </div>
 </header>
 
@@ -268,15 +305,8 @@ footer li a:hover{color:#fff}
         <circle cx="150" cy="270" r="150" fill="#ffffff0d"/>
         <g transform="translate(60,190)">
           <rect x="0" y="0" width="170" height="170" rx="26" fill="#fff"/>
-          <g transform="translate(28,28)" fill="#0B1440">
-            <rect x="0" y="0" width="34" height="34" rx="6"/><rect x="10" y="10" width="14" height="14" rx="3" fill="#fff"/>
-            <rect x="80" y="0" width="34" height="34" rx="6"/><rect x="90" y="10" width="14" height="14" rx="3" fill="#fff"/>
-            <rect x="0" y="80" width="34" height="34" rx="6"/><rect x="10" y="90" width="14" height="14" rx="3" fill="#fff"/>
-            <rect x="46" y="46" width="14" height="14" rx="3"/><rect x="70" y="46" width="10" height="10" rx="2"/>
-            <rect x="46" y="70" width="10" height="10" rx="2"/><rect x="70" y="70" width="14" height="14" rx="3"/>
-            <rect x="94" y="66" width="20" height="20" rx="4"/><rect x="94" y="94" width="20" height="20" rx="4"/>
-          </g>
-          <text x="85" y="158" text-anchor="middle" font-family="Poppins,Arial,sans-serif" font-size="13" font-weight="700" fill="#5A6B99">TABLE 7</text>
+          <image href="assets/wifi-qr.png" x="20" y="18" width="130" height="130"/>
+          <text x="85" y="158" text-anchor="middle" font-family="Poppins,Arial,sans-serif" font-size="12.5" font-weight="700" fill="#5A6B99">SCAN TO ORDER</text>
         </g>
         <path d="M225,235 C 300,190 330,150 360,110" fill="none" stroke="#26D48C" stroke-width="3" stroke-dasharray="2 10" stroke-linecap="round"/>
         <path d="M235,255 C 320,220 360,180 400,150" fill="none" stroke="#26D48C" stroke-width="3" stroke-dasharray="2 10" stroke-linecap="round" opacity=".5"/>
@@ -341,13 +371,13 @@ footer li a:hover{color:#fff}
     <div class="gallery">
       <div class="gtile">
         <div class="card"><div class="num">1</div>
-          <div class="vis"><svg width="96" height="96" viewBox="0 0 24 24" fill="none" stroke="#0B1440" stroke-width="1.5"><rect x="2" y="2" width="7" height="7" rx="1.2"/><rect x="15" y="2" width="7" height="7" rx="1.2"/><rect x="2" y="15" width="7" height="7" rx="1.2"/><path d="M15 15h3v3M20 15v3h-3M15 20h3v-3"/></svg></div>
-          <h3>Scan</h3><p>A QR code at the table joins the watch's own Wi-Fi in one tap.</p>
+          <div class="vis"><img src="assets/wifi-qr.png" alt="Real QR code guests scan to join the table's watch" style="width:120px;height:120px;border-radius:12px;box-shadow:0 6px 18px rgba(11,11,16,.12)"></div>
+          <h3>Scan</h3><p>This is a real QR code &mdash; scan it to join the demo watch's own Wi-Fi in one tap.</p>
         </div>
       </div>
       <div class="gtile">
         <div class="card"><div class="num">2</div>
-          <div class="vis"><div class="phone" style="width:96px"><img src="assets/guest-form.png" alt="Guest ordering screen"></div></div>
+          <div class="vis"><div class="iphone" style="width:100px"><div class="frame"><div class="screen"><img src="assets/guest-form.png" alt="Guest ordering screen on an iPhone"></div><div class="island"></div></div><i class="side action"></i><i class="side vol-up"></i><i class="side vol-down"></i><i class="side power"></i></div></div>
           <h3>Choose</h3><p>The guest confirms their table and picks a service.</p>
         </div>
       </div>
@@ -363,7 +393,7 @@ footer li a:hover{color:#fff}
       </div>
       <div class="gtile">
         <div class="card"><div class="num">4</div>
-          <div class="vis"><div class="phone" style="width:96px"><img src="assets/guest-sent.png" alt="Request confirmed screen"></div></div>
+          <div class="vis"><div class="iphone" style="width:100px"><div class="frame"><div class="screen"><img src="assets/guest-sent.png" alt="Request confirmed screen on an iPhone"></div><div class="island"></div></div><i class="side action"></i><i class="side vol-up"></i><i class="side vol-down"></i><i class="side power"></i></div></div>
           <h3>Deliver</h3><p>Staff serve the table and press a button to resolve it.</p>
         </div>
       </div>
@@ -419,33 +449,47 @@ footer li a:hover{color:#fff}
   <div class="wrap">
     <div class="shead"><span class="eyebrow center" style="display:block">PRICING</span>
       <h2>Priced for Zambian venues</h2>
-      <p class="lead center">Simple per-watch pricing in US dollar terms, billed in kwacha. Talk to us about a plan that fits your venue.</p>
+      <p class="lead center">Package pricing in kwacha &mdash; pick the size that matches your floor. Talk to us if you need something in between.</p>
     </div>
     <div class="pricegrid">
       <div class="ptier">
-        <span class="ptag">Own it</span>
-        <div class="amt">US$110<span> one-off, per watch</span></div>
-        <div class="zmw">&asymp; K2,120 &middot; includes table QR cards</div>
+        <span class="ptag">Basic</span>
+        <div class="amt">ZMW8,000</div>
+        <div class="zmw">4 watches &middot; covers up to 8 tables</div>
         <ul>
-          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>Watch, charging cable and table QR cards</li>
-          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>US$6/month (&asymp;K116) for support, replacement &amp; updates</li>
-          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>Yours outright &mdash; lowest cost over time</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>4 watches included</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>Covers up to 8 tables</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>Table QR cards for every table</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>Setup &amp; support included</li>
         </ul>
         <a class="btn btn-blue" href="#contact" style="width:100%;justify-content:center">Get started</a>
       </div>
       <div class="ptier feat">
-        <span class="ptag">Rent it</span>
-        <div class="amt">US$10<span>/month, per watch</span></div>
-        <div class="zmw">&asymp; K193 &middot; nothing upfront</div>
+        <span class="ptag">Pro &middot; most popular</span>
+        <div class="amt">ZMW9,500</div>
+        <div class="zmw">4 watches &middot; covers up to 16 tables</div>
         <ul>
-          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>No upfront cost &mdash; start with zero capital outlay</li>
-          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>Support, replacement &amp; updates included</li>
-          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>Cancel any time &mdash; ideal for a first trial</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>4 watches included</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>Covers up to 16 tables</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>Table QR cards for every table</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>Setup &amp; support included</li>
+        </ul>
+        <a class="btn btn-blue" href="#contact" style="width:100%;justify-content:center">Get started</a>
+      </div>
+      <div class="ptier">
+        <span class="ptag">Premium</span>
+        <div class="amt">ZMW20,000</div>
+        <div class="zmw">10 watches &middot; covers up to 40 tables</div>
+        <ul>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>10 watches included</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>Covers up to 40 tables</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>Table QR cards for every table</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6.5"/></svg>Priority setup &amp; support</li>
         </ul>
         <a class="btn btn-blue" href="#contact" style="width:100%;justify-content:center">Get started</a>
       </div>
     </div>
-    <p class="trial">Most venues run one watch per waiter on shift. Ask about a free trial period for your first watches.</p>
+    <p class="trial">Need a custom number of watches or tables? Get in touch &mdash; we'll put together a package that fits.</p>
   </div>
 </section>
 
@@ -516,11 +560,25 @@ footer li a:hover{color:#fff}
       </div>
     </div>
     <div class="fbottom">
-      <span><b>HSCR</b> &mdash; Made in Zambia. &copy; 2026 All rights reserved.</span>
+      <span><b>HSCR</b> by ServStack Tech Solutions &mdash; Made in Zambia. &copy; 2026 All rights reserved.</span>
       <span>info@hscr.online &middot; +260 77 121 9900 &middot; +260 96 663 6514</span>
     </div>
   </div>
 </footer>
 
+<script>
+  var burger = document.getElementById('burgerBtn');
+  var menu = document.getElementById('mobileMenu');
+  burger.addEventListener('click', function(){
+    var open = menu.classList.toggle('open');
+    burger.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  menu.querySelectorAll('a').forEach(function(a){
+    a.addEventListener('click', function(){
+      menu.classList.remove('open');
+      burger.setAttribute('aria-expanded', 'false');
+    });
+  });
+</script>
 </body>
 </html>
