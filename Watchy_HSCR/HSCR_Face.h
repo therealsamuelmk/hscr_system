@@ -149,11 +149,11 @@ inline void HSCRFace::drawIdle() {
     display.fillScreen(GxEPD_BLACK);
     display.setTextWrap(false);
 
-    // Top banner: always "HSCR SYSTEM".
+    // Top banner: always "PULSIQ".
     display.fillRect(0, 0, SCR_W, 28, GxEPD_WHITE);
     display.setFont(&FreeMonoBold12pt7b);
     display.setTextColor(GxEPD_BLACK);
-    printCentered("HSCR SYSTEM", 20);
+    printCentered("PULSIQ", 20);
 
     // Middle: no WiFi details needed here — the network itself is already
     // visible to any nearby phone's own WiFi scan.
@@ -166,7 +166,7 @@ inline void HSCRFace::drawIdle() {
     display.fillRect(0, 160, SCR_W, SCR_H - 160, GxEPD_WHITE);
     display.setTextColor(GxEPD_BLACK);
     printCentered("WAITING FOR", 178);
-    printCentered("CUSTOMER REQUEST", 196);
+    printCentered("REQUESTS", 196);
   } while (display.nextPage());
 }
 
