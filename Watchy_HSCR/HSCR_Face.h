@@ -110,7 +110,10 @@ private:
 
   DNSServer dns_;
   WebServer server_{80};
+  WiFiServer tlsSink_{443};
   String apSsid_;
+  void pumpTlsSink();  // fast-fails HTTPS captive-portal probes instead of
+                        // letting them time out (see begin()/loop() notes)
 
   void buzz(uint16_t ms);
   void startAlert(const String &table, const String &service);
@@ -406,24 +409,62 @@ inline void HSCRFace::setupRoutes() {
     startAlert(table, service);
   });
 
-  // Captive-portal probes: send everything to us so phones auto-pop the
-  // "Sign in to network" page after joining.
-  const char *captivePaths[] = {
-    "/generate_204", "/gen_204", "/hotspot-detect.html", "/library/test/success.html",
-    "/ncsi.txt", "/connecttest.txt", "/success.txt", "/fwlink"
+  // Captive-portal probes. Android/Samsung's connectivity checker (and
+  // iOS/Windows' equivalents) hits one of these right after joining; some
+  // OEM builds (notably Samsung's One UI) only auto-pop the "Sign in to
+  // network" browser if the probe gets back *real HTML content* on a plain
+  // 200 — a bare 302 with an empty body is enough for stock AOSP/Pixel but
+  // leaves Samsung sitting there until the user digs into Wi-Fi settings
+  // ("manage router") to find the sign-in link manually. So instead of
+  // redirecting these, serve the actual order page directly.
+  const char *htmlProbePaths[] = {
+    "/generate_204", "/gen_204", "/hotspot-detect.html", "/library/test/success.html", "/fwlink"
   };
-  for (const char *path : captivePaths) {
+  for (const char *path : htmlProbePaths) {
     server_.on(path, HTTP_GET, [this, path]() {
-      Serial.printf("captive-portal probe %s -> redirecting to /\n", path);
-      server_.sendHeader("Location", "http://" + WiFi.softAPIP().toString() + "/", true);
-      server_.send(302, "text/plain", "");
+      Serial.printf("captive-portal probe %s -> serving order page\n", path);
+      server_.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      server_.send(200, "text/html", pageOrderForm());
     });
   }
+
+  // Windows NCSI expects an exact plain-text body on 200, not a redirect —
+  // a 302 here just makes Windows report "no internet" and never tells the
+  // user there's a sign-in page at all.
+  server_.on("/ncsi.txt", HTTP_GET, [this]() {
+    server_.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    server_.send(200, "text/plain", "Microsoft NCSI");
+  });
+  server_.on("/connecttest.txt", HTTP_GET, [this]() {
+    server_.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    server_.send(200, "text/plain", "Microsoft Connect Test");
+  });
+
+  // Firefox's captive-portal check wants this exact body.
+  server_.on("/success.txt", HTTP_GET, [this]() {
+    server_.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    server_.send(200, "text/plain", "success\n");
+  });
+
   server_.onNotFound([this]() {
     Serial.printf("unhandled %s -> redirecting to /\n", server_.uri().c_str());
+    server_.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     server_.sendHeader("Location", "http://" + WiFi.softAPIP().toString() + "/", true);
     server_.send(302, "text/plain", "");
   });
+}
+
+// Android (9+) and Samsung's One UI probe an HTTPS URL in parallel with the
+// HTTP one and give its result priority. We can't terminate real TLS, but
+// leaving port 443 completely unlistened makes that probe time out slowly
+// instead of failing fast — on several Samsung builds that sluggish/ambiguous
+// result is enough to suppress the auto sign-in popup even though the HTTP
+// probe above already found a portal. Accepting the connection and closing
+// it immediately makes the HTTPS probe fail fast instead, so the OS falls
+// back to the HTTP result right away.
+inline void HSCRFace::pumpTlsSink() {
+  WiFiClient client = tlsSink_.available();
+  if (client) client.stop();
 }
 
 // ---------------------------------------------------------------------------
@@ -453,9 +494,13 @@ inline void HSCRFace::begin() {
                 apSsid_.c_str(), ok ? "OK" : "FAILED",
                 WiFi.softAPIP().toString().c_str());
 
+  // TTL 0: every phone must re-query us fresh rather than caching a stale
+  // answer from the brief window while the AP was still coming up.
+  dns_.setTTL(0);
   dns_.start(53, "*", WiFi.softAPIP());
   setupRoutes();
   server_.begin();
+  tlsSink_.begin();
 
   drawIdle();
 }
@@ -463,6 +508,7 @@ inline void HSCRFace::begin() {
 inline void HSCRFace::loop() {
   dns_.processNextRequest();
   server_.handleClient();
+  pumpTlsSink();
   vibratePump();
 
   // Resolve button: only acts while an alert is showing.
