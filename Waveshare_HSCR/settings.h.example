@@ -1,0 +1,35 @@
+#ifndef SETTINGS_H
+#define SETTINGS_H
+
+// Copy this file to settings.h and adjust TABLE_NUMBER before flashing each
+// device. settings.h is gitignored so two devices never accidentally get
+// flashed with the same table number from a stale local copy.
+
+// ---------------------------------------------------------------
+// This device's table number. Used to name its broadcast network (so it
+// doesn't collide with other HSCR devices, watch or AMOLED) and as the
+// default pre-filled table number on the order page — the guest can still
+// type a different one. The two existing Watchy devices use 1 and 2, so
+// start new AMOLED devices at 3.
+// ---------------------------------------------------------------
+#define TABLE_NUMBER 3
+
+// ---------------------------------------------------------------
+// The device broadcasts its own WiFi network — no venue WiFi/internet
+// needed at all. Guests join this network directly, then a page opens
+// (or they browse to 192.168.4.1) to place a request.
+// AP_PASSWORD "" = open network (easiest for guests). Set 8+ characters
+// to require a password instead.
+// ---------------------------------------------------------------
+#define AP_SSID_PREFIX  "HSCR-Table-"
+#define AP_PASSWORD     ""
+
+// ---------------------------------------------------------------
+// This board has no buzzer/vibration motor, so the alert is a flashing
+// banner instead: flash on for BUZZ_ON_MS, off for BUZZ_OFF_MS, repeat —
+// until the screen is tapped.
+// ---------------------------------------------------------------
+#define BUZZ_ON_MS   400UL
+#define BUZZ_OFF_MS  600UL
+
+#endif

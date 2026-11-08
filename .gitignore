@@ -3,6 +3,7 @@
 backend/hscr-db.php
 hscr-db.local.php
 Watchy_HSCR/settings.h
+Waveshare_HSCR/settings.h
 
 .DS_Store
 
