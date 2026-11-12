@@ -33,6 +33,9 @@
 #include <DNSServer.h>
 #include <WebServer.h>
 #include <SensorPCF85063.hpp>
+#define XPOWERS_CHIP_AXP2101
+#include <XPowersLib.h>
+#include "boot_logo.h"
 #include "bg_image.h"
 #include "service_icons.h"
 
@@ -51,6 +54,7 @@
 #define IIC_SCL   14
 #define TP_INT    38
 #define TP_RESET  9
+#define PIN_BOOT  0   // BOOT button, active-low
 
 static Arduino_DataBus *gfxBus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
@@ -65,13 +69,12 @@ static std::unique_ptr<Arduino_IIC> touch(new Arduino_FT3x68(
 static void touchInterrupt() { touch->IIC_Interrupt_Flag = true; }
 
 static SensorPCF85063 rtc;
+static XPowersPMU pmu;
 
 // Brand palette (matches info.hscr.online) plus the four service-tile colours
 // from the reference mockup (pulsiq-logo-endorsed.svg / the Ankara-pattern
 // home screen design).
 #define COLOR_BRAND_BLUE    0x1A5E  // #1842B6
-#define COLOR_MUTED_GRAY    0x7BCF  // #767A7E — boot screen subtitle, over white
-#define COLOR_PULSIQ_PURPLE 0x597A  // #5B2FD6
 #define COLOR_BADGE_RED     0xE1C6  // #E53935 — badge + WATER tile
 #define COLOR_TILE_ORDER    0x4D6A  // #4CAF50
 #define COLOR_TILE_BILL     0xE3E4  // #E67E22
@@ -148,6 +151,8 @@ private:
   int detailIndex_ = -1;  // index into pending_ currently shown on the detail screen
 
   bool touchWasDown_ = false;
+  bool idle_ = false;              // screen off, still serving requests
+  unsigned long lastActivity_ = 0;
   unsigned long badgeFlashUntil_ = 0;
   bool badgeFlashOn_ = true;
   String lastClockText_ = "";
@@ -164,6 +169,9 @@ private:
   void removePending(int idx);
 
   void printCentered(const char *txt, int16_t y, uint8_t size);
+  void printCenteredAt(const char *txt, int16_t cx, int16_t y, uint8_t size);
+  void enterIdle();
+  void wake();
   IconRect iconRect(int i);
   IconRect attendedButtonRect();
   void drawServiceGlyph(int serviceIdx, int16_t cx, int16_t cy);
@@ -189,6 +197,33 @@ inline void HSCRFaceLCD::printCentered(const char *txt, int16_t y, uint8_t size)
   gfx->getTextBounds(txt, 0, y, &x1, &y1, &w, &h);
   gfx->setCursor((LCD_WIDTH - (int16_t)w) / 2, y);
   gfx->print(txt);
+}
+
+inline void HSCRFaceLCD::printCenteredAt(const char *txt, int16_t cx, int16_t y, uint8_t size) {
+  int16_t x1, y1;
+  uint16_t w, h;
+  gfx->setTextSize(size);
+  gfx->getTextBounds(txt, 0, y, &x1, &y1, &w, &h);
+  gfx->setCursor(cx - (int16_t)w / 2, y);
+  gfx->print(txt);
+}
+
+// Idle = screen off only. WiFi, the web server and the request queue keep
+// running, so guests can still order; a new request wakes the screen by
+// itself, otherwise only the BOOT button does (touch is ignored while dark).
+inline void HSCRFaceLCD::enterIdle() {
+  idle_ = true;
+  gfx->displayOff();
+  Serial.println("idle: screen off");
+}
+
+inline void HSCRFaceLCD::wake() {
+  lastActivity_ = millis();
+  if (!idle_) return;
+  idle_ = false;
+  gfx->displayOn();
+  if (state_ == FACE_DETAIL) drawDetail(); else drawHome();
+  Serial.println("wake: screen on");
 }
 
 inline bool HSCRFaceLCD::touchIsDown() {
@@ -236,10 +271,8 @@ inline IconRect HSCRFaceLCD::attendedButtonRect() {
   return IconRect{30, 400, (int16_t)(LCD_WIDTH - 60), 80};
 }
 
-// Order/Bill/Waiter use real icon art (pre-composited onto each tile's own
-// background colour at conversion time — see scratchpad/icons/make_icons.py
-// — so there's no transparent-edge halo). Water has no cleared, unwatermarked
-// image yet, so it stays a simple drawn droplet until one is supplied.
+// Icon art is pre-composited onto each tile's own background colour when
+// converted to RGB565, so there's no transparent-edge halo.
 inline void HSCRFaceLCD::drawServiceGlyph(int serviceIdx, int16_t cx, int16_t cy) {
   const char *key = SERVICES[serviceIdx].key;
   if (strcmp(key, "order") == 0) {
@@ -249,8 +282,7 @@ inline void HSCRFaceLCD::drawServiceGlyph(int serviceIdx, int16_t cx, int16_t cy
   } else if (strcmp(key, "waiter") == 0) {
     gfx->draw16bitRGBBitmap(cx - ICON_WAITER_W / 2, cy - ICON_WAITER_H / 2, ICON_WAITER, ICON_WAITER_W, ICON_WAITER_H);
   } else {  // water
-    gfx->fillCircle(cx, cy + 6, 16, WHITE);
-    gfx->fillTriangle(cx, cy - 22, cx - 13, cy + 2, cx + 13, cy + 2, WHITE);
+    gfx->draw16bitRGBBitmap(cx - ICON_WATER_W / 2, cy - ICON_WATER_H / 2, ICON_WATER, ICON_WATER_W, ICON_WATER_H);
   }
 }
 
@@ -280,20 +312,15 @@ inline void HSCRFaceLCD::drawIconBadge(int i, bool on) {
 }
 
 inline void HSCRFaceLCD::drawBootScreen() {
-  gfx->fillScreen(WHITE);
+  gfx->draw16bitRGBBitmap(0, 0, BG_IMAGE, BG_W, BG_H);
 
-  int16_t cx = LCD_WIDTH / 2;
-  int16_t cy = LCD_HEIGHT / 2 - 40;
-
-  gfx->fillRoundRect(cx - 58, cy - 58, 116, 116, 30, COLOR_PULSIQ_PURPLE);
-  gfx->fillCircle(cx - 20, cy, 9, WHITE);
-  gfx->drawArc(cx - 20, cy, 20, 28, -40, 40, WHITE);
-  gfx->drawArc(cx - 20, cy, 35, 43, -40, 40, WHITE);
-
-  gfx->setTextColor(BLACK);
-  printCentered("Pulsiq", cy + 92, 4);
-  gfx->setTextColor(COLOR_MUTED_GRAY);
-  printCentered("by ServStack Tech Solutions", cy + 136, 2);
+  // The logo's dark wordmark is unreadable straight on the pattern, so it
+  // sits on a white card.
+  const int16_t pad = 16;
+  int16_t cardW = BOOT_LOGO_W + 2 * pad, cardH = BOOT_LOGO_H + 2 * pad;
+  int16_t cardX = (LCD_WIDTH - cardW) / 2, cardY = (LCD_HEIGHT - cardH) / 2;
+  gfx->fillRoundRect(cardX, cardY, cardW, cardH, 22, WHITE);
+  gfx->draw16bitRGBBitmap(cardX + pad, cardY + pad, BOOT_LOGO, BOOT_LOGO_W, BOOT_LOGO_H);
 }
 
 inline void HSCRFaceLCD::drawHome() {
@@ -311,7 +338,7 @@ inline void HSCRFaceLCD::drawHome() {
     // Icon centered in the tile above the label strip (bottom ~34px).
     drawServiceGlyph(i, r.x + r.w / 2, r.y + (r.h - 34) / 2);
     gfx->setTextColor(WHITE);
-    printCentered(SERVICES[i].label, r.y + r.h - 24, 2);
+    printCenteredAt(SERVICES[i].label, r.x + r.w / 2, r.y + r.h - 26, 2);
     drawIconBadge(i, true);
   }
   badgeFlashOn_ = true;
@@ -536,6 +563,7 @@ inline void HSCRFaceLCD::setupRoutes() {
     Serial.println("  -> accepted, queued");
     server_.send(200, "text/html", pageThanks(table, service));
     pending_[pendingCount_++] = PendingRequest{table, service};
+    wake();
     if (state_ == FACE_HOME) {
       int svc = serviceIndex(service);
       drawIconBadge(svc, true);
@@ -632,6 +660,20 @@ inline void HSCRFaceLCD::begin() {
   // the battery-backed RTC keeps correct time across reflashes/reboots on
   // its own. Staff can nudge it by a few minutes by reflashing if it drifts
   // — there's no on-device "set time" UI yet.
+  // Power button: handled by the AXP2101 power chip itself rather than in
+  // firmware — hold ~1s to switch on, hold ~4s to switch off. Being a
+  // hardware cut-off, it works even if this firmware ever hangs.
+  if (pmu.init(Wire, IIC_SDA, IIC_SCL)) {
+    pmu.setPowerKeyPressOnTime(XPOWERS_POWERON_1S);
+    pmu.setPowerKeyPressOffTime(XPOWERS_POWEROFF_4S);
+    pmu.setLongPressPowerOFF();
+    pmu.enableLongPressShutdown();
+  } else {
+    Serial.println("AXP2101 PMU not found - power button long-press not configured");
+  }
+
+  pinMode(PIN_BOOT, INPUT_PULLUP);
+
   rtc.begin(Wire, IIC_SDA, IIC_SCL);
   if (!rtc.isClockIntegrityGuaranteed()) {
     Serial.println("RTC time not trustworthy, setting from build time");
@@ -654,17 +696,30 @@ inline void HSCRFaceLCD::begin() {
   tlsSink_.begin();
 
   drawHome();
+  lastActivity_ = millis();
 }
 
 inline void HSCRFaceLCD::loop() {
   dns_.processNextRequest();
   server_.handleClient();
   pumpTlsSink();
-  badgeFlashPump();
 
+  if (digitalRead(PIN_BOOT) == LOW) wake();
+
+  if (idle_) return;
+
+  // Never go dark while a request is still waiting — the blinking badge is
+  // the alert.
+  if (pendingCount_ == 0 && millis() - lastActivity_ > IDLE_TIMEOUT_MS) {
+    enterIdle();
+    return;
+  }
+
+  badgeFlashPump();
   if (state_ == FACE_HOME) updateClock(false);
 
   bool touchDown = touchIsDown();
+  if (touchDown) lastActivity_ = millis();
   if (touchDown && !touchWasDown_) {
     int32_t tx = (int32_t)touch->IIC_Read_Device_Value(Arduino_IIC_Touch::Value_Information::TOUCH_COORDINATE_X);
     int32_t ty = (int32_t)touch->IIC_Read_Device_Value(Arduino_IIC_Touch::Value_Information::TOUCH_COORDINATE_Y);

@@ -32,4 +32,11 @@
 #define BUZZ_ON_MS   400UL
 #define BUZZ_OFF_MS  600UL
 
+// ---------------------------------------------------------------
+// Screen switches off after this long with no touch and no pending
+// request. The device keeps taking requests while dark; a new request or
+// the BOOT button wakes it.
+// ---------------------------------------------------------------
+#define IDLE_TIMEOUT_MS 30000UL
+
 #endif
