@@ -7,21 +7,22 @@
 // e-paper — unlike the Watchy_HSCR build this mirrors).
 // ----------------------------------------------------------------------------
 // Same architecture as Watchy_HSCR: no venue WiFi, no internet, no backend.
-// The device broadcasts its own WiFi network; a guest's phone joins it,
-// gets a tiny order page served directly, and submitting it updates the
-// screen immediately and flashes the alert banner repeatedly until the
-// screen is tapped to mark it delivered. This board has no physical MENU
-// button and no buzzer/vibration motor (it has a speaker, but driving it
-// needs the ES8311 I2S codec — out of scope for now), so touch + a flashing
-// screen replace those.
+// The device broadcasts its own WiFi network; a guest's phone joins it, gets
+// a tiny order page served directly, and submitting it queues a pending
+// request. The home screen shows four service icons (Order/Bill/Waiter/
+// Water); any icon with a pending request shows a red badge, blinking until
+// attended. Tapping a badged icon opens a detail screen naming the table;
+// its "Attended" button clears that request and returns home, showing the
+// next queued request's badge if there is one. This board has no physical
+// MENU button and no buzzer/vibration motor (it has a speaker, but driving
+// it needs the ES8311 I2S codec — out of scope for now), so touch + a
+// blinking badge replace those.
 //
 // Pin numbers and driver classes below come from Waveshare's own GitHub demo
 // repo (github.com/waveshareteam/ESP32-S3-Touch-AMOLED-2.06,
 // examples/arduino/libraries/board_config/pin_config.h) for this exact
-// board, not guessed. This firmware was originally built against the wrong
-// Waveshare board (ESP32-S3-Touch-LCD-1.69) before a hardware photo showed
-// the real one — if touch/display ever go silent again on different unit,
-// confirm against that repo rather than assuming these pins.
+// board, not guessed. See [[waveshare-amoled-device]] for the two real bugs
+// hit getting this board working (GFX library version, FT3168 reset pulse).
 // ----------------------------------------------------------------------------
 
 #include "settings.h"
@@ -31,6 +32,9 @@
 #include <WiFi.h>
 #include <DNSServer.h>
 #include <WebServer.h>
+#include <SensorPCF85063.hpp>
+#include "bg_image.h"
+#include "service_icons.h"
 
 // ---- pin map (Waveshare's pin_config.h for this board) ---------------------
 #define LCD_SDIO0 4
@@ -60,46 +64,77 @@ static std::unique_ptr<Arduino_IIC> touch(new Arduino_FT3x68(
     touchBus, FT3168_DEVICE_ADDRESS, DRIVEBUS_DEFAULT_VALUE, TP_INT, touchInterrupt));
 static void touchInterrupt() { touch->IIC_Interrupt_Flag = true; }
 
-// Brand palette (matches info.hscr.online).
-#define COLOR_BRAND_BLUE   0x1A5E  // RGB565 for #1842B6
-#define COLOR_ALERT_RED    0xC104  // RGB565 for #C8203A
-#define COLOR_MUTED        0x7BCF  // RGB565 for #767A7E
-#define COLOR_PULSIQ_PURPLE 0x597A  // RGB565 for #5B2FD6 (pulsiq-logo-endorsed.svg)
+static SensorPCF85063 rtc;
 
-// SERVICES: identical wording/icons to Watchy_HSCR's HSCR_Face.h so the
-// guest-facing page reads the same regardless of which device table they're
-// sitting at.
+// Brand palette (matches info.hscr.online) plus the four service-tile colours
+// from the reference mockup (pulsiq-logo-endorsed.svg / the Ankara-pattern
+// home screen design).
+#define COLOR_BRAND_BLUE    0x1A5E  // #1842B6
+#define COLOR_MUTED_GRAY    0x7BCF  // #767A7E — boot screen subtitle, over white
+#define COLOR_PULSIQ_PURPLE 0x597A  // #5B2FD6
+#define COLOR_BADGE_RED     0xE1C6  // #E53935 — badge + WATER tile
+#define COLOR_TILE_ORDER    0x4D6A  // #4CAF50
+#define COLOR_TILE_BILL     0xE3E4  // #E67E22
+#define COLOR_TILE_WAITER   0x2104  // #202020
+#define COLOR_TILE_WATER    0xE1C6  // #E53935
+
+// SERVICES: four categories matching the staff home screen's icon grid.
+// `key`/`label`/`desc`/`icon` feed the guest-facing web order form; `detail`
+// feeds the on-watch detail screen's "<X> needed/requested at Table N"
+// message; `doneText` feeds the guest "request sent" page; `color` fills
+// the on-watch icon tile.
 struct ServiceLabel {
-  const char *key, *label, *desc, *watchText, *doneText, *icon;
+  const char *key, *label, *desc, *detail, *doneText, *icon;
+  uint16_t color;
 };
 static const ServiceLabel SERVICES[] = {
-  { "payment", "Make payment", "Bring the bill and card machine",
-    "PAYMENT NEEDED AT TABLE ", "The bill is on its way to table ",
-    "<rect x='2.5' y='5.5' width='19' height='13' rx='2.5'/><path d='M2.5 10h19'/><path d='M6 14.5h3.5'/>" },
-  { "waiter", "Request waiter", "Someone comes to your table",
-    "WAITER NEEDED AT TABLE ", "A waiter is heading to table ",
-    "<path d='M3.5 17.5h17'/><path d='M4.8 14.2a7.2 7.2 0 0 1 14.4 0z'/><path d='M12 4v3'/><circle cx='12' cy='3.2' r='1.1'/>" },
-  { "order", "Make an order", "Ready to order food or drinks",
-    "ORDER REQUEST AT TABLE ", "A waiter will take your order at table ",
-    "<path d='M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z'/><path d='M14.5 3v4.5H19'/><path d='M8.5 12.5h7M8.5 16.5h4.5'/>" },
+  { "order", "Order", "Ready to order food or drinks",
+    "Order requested", "A waiter will take your order at table ",
+    "<path d='M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z'/><path d='M14.5 3v4.5H19'/><path d='M8.5 12.5h7M8.5 16.5h4.5'/>",
+    COLOR_TILE_ORDER },
+  { "bill", "Bill", "Bring the bill and card machine",
+    "Bill needed", "The bill is on its way to table ",
+    "<rect x='2.5' y='5.5' width='19' height='13' rx='2.5'/><path d='M2.5 10h19'/><path d='M6 14.5h3.5'/>",
+    COLOR_TILE_BILL },
+  { "waiter", "Waiter", "Someone comes to your table",
+    "Waiter needed", "A waiter is heading to table ",
+    "<path d='M3.5 17.5h17'/><path d='M4.8 14.2a7.2 7.2 0 0 1 14.4 0z'/><path d='M12 4v3'/><circle cx='12' cy='3.2' r='1.1'/>",
+    COLOR_TILE_WAITER },
+  { "water", "Water", "Bring a jug or bottle of water",
+    "Water needed", "Water is on its way to table ",
+    "<path d='M12 3.5c3 4 5.5 7.2 5.5 10.3a5.5 5.5 0 0 1-11 0C6.5 10.7 9 7.5 12 3.5z'/>",
+    COLOR_TILE_WATER },
 };
 static const int SERVICES_COUNT = sizeof(SERVICES) / sizeof(SERVICES[0]);
 
-static const char *serviceWatchText(const String &key) {
+static int serviceIndex(const String &key) {
   for (int i = 0; i < SERVICES_COUNT; i++) {
-    if (key == SERVICES[i].key) return SERVICES[i].watchText;
+    if (key == SERVICES[i].key) return i;
   }
-  return "SERVICE NEEDED AT TABLE ";
+  return -1;
 }
 
 static const char *serviceDoneText(const String &key) {
-  for (int i = 0; i < SERVICES_COUNT; i++) {
-    if (key == SERVICES[i].key) return SERVICES[i].doneText;
-  }
-  return "Staff is on the way to table ";
+  int i = serviceIndex(key);
+  return i >= 0 ? SERVICES[i].doneText : "Staff is on the way to table ";
 }
 
-enum FaceState { FACE_IDLE, FACE_ALERT };
+// ---- pending-request queue ---------------------------------------------
+// Every submitted guest request is queued here (not just one at a time) —
+// several tables can be waiting on different (or the same) service at once.
+// A service's icon badge reflects whether *any* queued entry matches it;
+// opening that icon shows the oldest matching entry.
+struct PendingRequest {
+  String table;
+  String service;
+};
+static const int MAX_PENDING = 16;
+
+enum FaceState { FACE_HOME, FACE_DETAIL };
+
+struct IconRect {
+  int16_t x, y, w, h;
+};
 
 class HSCRFaceLCD {
 public:
@@ -107,12 +142,15 @@ public:
   void loop();
 
 private:
-  FaceState state_ = FACE_IDLE;
-  String activeService_ = "";
-  String activeTable_ = "";
+  FaceState state_ = FACE_HOME;
+  PendingRequest pending_[MAX_PENDING];
+  int pendingCount_ = 0;
+  int detailIndex_ = -1;  // index into pending_ currently shown on the detail screen
+
   bool touchWasDown_ = false;
-  unsigned long flashUntil_ = 0;
-  bool flashOn_ = false;
+  unsigned long badgeFlashUntil_ = 0;
+  bool badgeFlashOn_ = true;
+  String lastClockText_ = "";
 
   DNSServer dns_;
   WebServer server_{80};
@@ -121,13 +159,21 @@ private:
   void pumpTlsSink();
 
   bool touchIsDown();
-  void flashPump();   // non-blocking alert-banner flash while alerting
-  void drawAlertBanner(bool highlighted);
+  int pendingCountFor(int serviceIdx);
+  int firstPendingFor(int serviceIdx);
+  void removePending(int idx);
 
   void printCentered(const char *txt, int16_t y, uint8_t size);
+  IconRect iconRect(int i);
+  IconRect attendedButtonRect();
+  void drawServiceGlyph(int serviceIdx, int16_t cx, int16_t cy);
+  void drawIconBadge(int i, bool on);
+  void badgeFlashPump();
+
   void drawBootScreen();
-  void drawIdle();
-  void drawAlert();
+  void drawHome();
+  void drawDetail();
+  void updateClock(bool force);
 
   void setupRoutes();
   String pageOrderForm();
@@ -151,11 +197,88 @@ inline bool HSCRFaceLCD::touchIsDown() {
   return fingers > 0;
 }
 
-// Drawn as vector shapes (matching pulsiq-logo-endorsed.svg's own rect +
-// circle + arc construction) rather than a rasterized bitmap: a rasterized
-// RGB565 bitmap blit through this board's QSPI/DMA path reliably crashed
-// with a LoadStoreAlignment panic, so primitives are both simpler and
-// safer here.
+inline int HSCRFaceLCD::pendingCountFor(int serviceIdx) {
+  int c = 0;
+  for (int i = 0; i < pendingCount_; i++) {
+    if (pending_[i].service == SERVICES[serviceIdx].key) c++;
+  }
+  return c;
+}
+
+inline int HSCRFaceLCD::firstPendingFor(int serviceIdx) {
+  for (int i = 0; i < pendingCount_; i++) {
+    if (pending_[i].service == SERVICES[serviceIdx].key) return i;
+  }
+  return -1;
+}
+
+inline void HSCRFaceLCD::removePending(int idx) {
+  if (idx < 0 || idx >= pendingCount_) return;
+  for (int i = idx; i < pendingCount_ - 1; i++) pending_[i] = pending_[i + 1];
+  pendingCount_--;
+}
+
+// ---- layout --------------------------------------------------------------
+// 2x2 icon grid, shared by drawing and touch hit-testing so they can never
+// disagree with each other.
+inline IconRect HSCRFaceLCD::iconRect(int i) {
+  const int16_t marginX = 24, gap = 16, iconW = 173, iconH = 150, gridTop = 150;
+  int16_t col = i % 2, row = i / 2;
+  IconRect r;
+  r.x = marginX + col * (iconW + gap);
+  r.y = gridTop + row * (iconH + gap);
+  r.w = iconW;
+  r.h = iconH;
+  return r;
+}
+
+inline IconRect HSCRFaceLCD::attendedButtonRect() {
+  return IconRect{30, 400, (int16_t)(LCD_WIDTH - 60), 80};
+}
+
+// Order/Bill/Waiter use real icon art (pre-composited onto each tile's own
+// background colour at conversion time — see scratchpad/icons/make_icons.py
+// — so there's no transparent-edge halo). Water has no cleared, unwatermarked
+// image yet, so it stays a simple drawn droplet until one is supplied.
+inline void HSCRFaceLCD::drawServiceGlyph(int serviceIdx, int16_t cx, int16_t cy) {
+  const char *key = SERVICES[serviceIdx].key;
+  if (strcmp(key, "order") == 0) {
+    gfx->draw16bitRGBBitmap(cx - ICON_ORDER_W / 2, cy - ICON_ORDER_H / 2, ICON_ORDER, ICON_ORDER_W, ICON_ORDER_H);
+  } else if (strcmp(key, "bill") == 0) {
+    gfx->draw16bitRGBBitmap(cx - ICON_BILL_W / 2, cy - ICON_BILL_H / 2, ICON_BILL, ICON_BILL_W, ICON_BILL_H);
+  } else if (strcmp(key, "waiter") == 0) {
+    gfx->draw16bitRGBBitmap(cx - ICON_WAITER_W / 2, cy - ICON_WAITER_H / 2, ICON_WAITER, ICON_WAITER_W, ICON_WAITER_H);
+  } else {  // water
+    gfx->fillCircle(cx, cy + 6, 16, WHITE);
+    gfx->fillTriangle(cx, cy - 22, cx - 13, cy + 2, cx + 13, cy + 2, WHITE);
+  }
+}
+
+inline void HSCRFaceLCD::drawIconBadge(int i, bool on) {
+  IconRect r = iconRect(i);
+  // Pulled in from the corner so the badge's "off" erase-fill (which just
+  // repaints the tile's flat colour) doesn't spill past the tile's rounded
+  // corner onto the background.
+  int16_t bx = r.x + r.w - 20, by = r.y + 20;
+  int count = pendingCountFor(i);
+  if (count <= 0) return;  // no pending request for this icon — nothing to blink/clear
+  if (on) {
+    gfx->fillCircle(bx, by, 18, COLOR_BADGE_RED);
+    gfx->setTextColor(WHITE);
+    char buf[4];
+    snprintf(buf, sizeof(buf), "%d", count > 99 ? 99 : count);
+    gfx->setTextSize(1);
+    int16_t x1, y1; uint16_t w, h;
+    gfx->getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
+    gfx->setCursor(bx - w / 2, by - h / 2);
+    gfx->print(buf);
+  } else {
+    // Blink "off": paint the badge's circular footprint back over with the
+    // tile's own colour instead of redrawing the whole tile.
+    gfx->fillCircle(bx, by, 18, SERVICES[i].color);
+  }
+}
+
 inline void HSCRFaceLCD::drawBootScreen() {
   gfx->fillScreen(WHITE);
 
@@ -169,57 +292,84 @@ inline void HSCRFaceLCD::drawBootScreen() {
 
   gfx->setTextColor(BLACK);
   printCentered("Pulsiq", cy + 92, 4);
-  gfx->setTextColor(COLOR_MUTED);
+  gfx->setTextColor(COLOR_MUTED_GRAY);
   printCentered("by ServStack Tech Solutions", cy + 136, 2);
 }
 
-inline void HSCRFaceLCD::drawIdle() {
-  gfx->fillScreen(WHITE);
+inline void HSCRFaceLCD::drawHome() {
+  gfx->draw16bitRGBBitmap(0, 0, BG_IMAGE, BG_W, BG_H);
 
-  gfx->fillRect(0, 0, LCD_WIDTH, 72, COLOR_BRAND_BLUE);
   gfx->setTextColor(WHITE);
-  printCentered("PULSIQ", 26, 3);
+  lastClockText_ = "";  // force the clock to redraw over the fresh background
+  updateClock(true);
 
-  gfx->setTextColor(COLOR_MUTED);
-  printCentered("WAITING FOR", 220, 3);
-  printCentered("REQUESTS", 264, 3);
+  printCentered("Table Service", 108, 2);
 
-  gfx->setTextColor(BLACK);
-  printCentered(("JOIN WIFI: " + apSsid_).c_str(), 460, 2);
+  for (int i = 0; i < SERVICES_COUNT; i++) {
+    IconRect r = iconRect(i);
+    gfx->fillRoundRect(r.x, r.y, r.w, r.h, 20, SERVICES[i].color);
+    // Icon centered in the tile above the label strip (bottom ~34px).
+    drawServiceGlyph(i, r.x + r.w / 2, r.y + (r.h - 34) / 2);
+    gfx->setTextColor(WHITE);
+    printCentered(SERVICES[i].label, r.y + r.h - 24, 2);
+    drawIconBadge(i, true);
+  }
+  badgeFlashOn_ = true;
+  badgeFlashUntil_ = 0;
 }
 
-inline void HSCRFaceLCD::drawAlertBanner(bool highlighted) {
-  gfx->fillRect(0, 0, LCD_WIDTH, 72, highlighted ? WHITE : COLOR_ALERT_RED);
-  gfx->setTextColor(highlighted ? COLOR_ALERT_RED : WHITE);
-  printCentered("SERVICE NEEDED", 26, 2);
+inline void HSCRFaceLCD::drawDetail() {
+  const PendingRequest &req = pending_[detailIndex_];
+  int svc = serviceIndex(req.service);
+  const char *verb = svc >= 0 ? SERVICES[svc].detail : "Service needed";
+
+  gfx->draw16bitRGBBitmap(0, 0, BG_IMAGE, BG_W, BG_H);
+
+  gfx->setTextColor(WHITE);
+  printCentered(verb, 210, 3);
+  printCentered(("at Table " + req.table).c_str(), 256, 3);
+
+  IconRect btn = attendedButtonRect();
+  gfx->fillRoundRect(btn.x, btn.y, btn.w, btn.h, 20, COLOR_TILE_ORDER);
+  gfx->setTextColor(WHITE);
+  int16_t x1, y1; uint16_t w, h;
+  gfx->setTextSize(3);
+  gfx->getTextBounds("Attended", 0, 0, &x1, &y1, &w, &h);
+  gfx->setCursor(btn.x + (btn.w - (int16_t)w) / 2, btn.y + (btn.h - (int16_t)h) / 2);
+  gfx->print("Attended");
+
+  int others = pendingCount_ - 1;
+  if (others > 0) {
+    int16_t bx = btn.x + btn.w - 6, by = btn.y - 6;
+    gfx->fillCircle(bx, by, 16, COLOR_BADGE_RED);
+    gfx->setTextColor(WHITE);
+    char buf[4];
+    snprintf(buf, sizeof(buf), "%d", others > 99 ? 99 : others);
+    gfx->setTextSize(1);
+    gfx->getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
+    gfx->setCursor(bx - w / 2, by - h / 2);
+    gfx->print(buf);
+  }
 }
 
-inline void HSCRFaceLCD::drawAlert() {
-  const char *label = serviceWatchText(activeService_);
+// Draws "HH:MM" at the top of the home screen, only repainting when the
+// displayed minute actually changes (or `force`, e.g. right after a
+// background redraw) so the clock doesn't flicker every loop iteration.
+inline void HSCRFaceLCD::updateClock(bool force) {
+  RTC_DateTime now = rtc.getDateTime();
+  char buf[6];
+  snprintf(buf, sizeof(buf), "%02d:%02d", now.getHour(), now.getMinute());
+  if (!force && lastClockText_ == buf) return;
+  lastClockText_ = buf;
 
-  gfx->fillScreen(WHITE);
-  drawAlertBanner(false);
-
-  gfx->setTextColor(BLACK);
-  printCentered(("TABLE " + activeTable_).c_str(), 140, 5);
-
-  gfx->drawLine(20, 220, LCD_WIDTH - 20, 220, BLACK);
-
-  gfx->setTextSize(2);
-  gfx->setCursor(24, 244);
-  gfx->print(String(label) + activeTable_);
-
-  gfx->drawLine(20, 320, LCD_WIDTH - 20, 320, BLACK);
-
-  gfx->fillRoundRect(30, 360, LCD_WIDTH - 60, 110, 20, COLOR_BRAND_BLUE);
   gfx->setTextColor(WHITE);
-  printCentered("TAP ANYWHERE", 392, 2);
-  printCentered("TO MARK DELIVERED", 428, 2);
+  printCentered(buf, 40, 5);
 }
 
 // ---- web pages --------------------------------------------------------------
-// Identical guest-facing HTML/CSS to Watchy_HSCR so the ordering experience
-// matches regardless of which device's AP the guest joined.
+// Guest-facing HTML/CSS mirrors Watchy_HSCR's style (same monochrome glass
+// design) so the ordering experience feels consistent across device types,
+// even though this device's own screen now looks completely different.
 
 static const char PAGE_STYLE[] =
   "<style>"
@@ -369,10 +519,7 @@ inline void HSCRFaceLCD::setupRoutes() {
     for (size_t i = 0; validTable && i < table.length(); i++) {
       if (!isDigit(table[i])) validTable = false;
     }
-    bool validService = false;
-    for (int i = 0; i < SERVICES_COUNT; i++) {
-      if (service == SERVICES[i].key) validService = true;
-    }
+    bool validService = serviceIndex(service) >= 0;
 
     if (!validTable || !validService) {
       Serial.println("  -> rejected (invalid table/service)");
@@ -380,14 +527,23 @@ inline void HSCRFaceLCD::setupRoutes() {
       return;
     }
 
-    Serial.println("  -> accepted, alert started");
+    if (pendingCount_ >= MAX_PENDING) {
+      Serial.println("  -> rejected (too many pending requests)");
+      server_.send(503, "text/plain", "Too many pending requests — please tell staff directly.");
+      return;
+    }
+
+    Serial.println("  -> accepted, queued");
     server_.send(200, "text/html", pageThanks(table, service));
-    activeTable_ = table;
-    activeService_ = service;
-    state_ = FACE_ALERT;
-    flashUntil_ = 0;
-    flashOn_ = false;
-    drawAlert();
+    pending_[pendingCount_++] = PendingRequest{table, service};
+    if (state_ == FACE_HOME) {
+      int svc = serviceIndex(service);
+      drawIconBadge(svc, true);
+      badgeFlashOn_ = true;
+      badgeFlashUntil_ = 0;
+    }
+    // If staff is viewing a *different* request's detail screen, the new
+    // one just waits quietly in the queue — no need to interrupt them.
   });
 
   // Captive-portal probes. See [[hscr-deployment]] / HSCR_Face.h for why
@@ -468,6 +624,20 @@ inline void HSCRFaceLCD::begin() {
   touch->IIC_Write_Device_State(Arduino_IIC_Touch::Device::TOUCH_POWER_MODE,
                                  Arduino_IIC_Touch::Device_Mode::TOUCH_POWER_MONITOR);
 
+  // There's no internet (AP-only) to get real time from, so there's no NTP
+  // here. isClockIntegrityGuaranteed() reflects the PCF85063's own
+  // oscillator-stop flag — true only if the RTC has run continuously since
+  // it was last set. On a truly fresh chip (or one that lost backup power)
+  // this is false, so fall back to the firmware's own build time; once set,
+  // the battery-backed RTC keeps correct time across reflashes/reboots on
+  // its own. Staff can nudge it by a few minutes by reflashing if it drifts
+  // — there's no on-device "set time" UI yet.
+  rtc.begin(Wire, IIC_SDA, IIC_SCL);
+  if (!rtc.isClockIntegrityGuaranteed()) {
+    Serial.println("RTC time not trustworthy, setting from build time");
+    rtc.setDateTime(RTC_DateTime(__DATE__, __TIME__));
+  }
+
   apSsid_ = String(AP_SSID_PREFIX) + String(TABLE_NUMBER);
   WiFi.mode(WIFI_AP);
   bool ok = strlen(AP_PASSWORD) >= 8
@@ -483,38 +653,62 @@ inline void HSCRFaceLCD::begin() {
   server_.begin();
   tlsSink_.begin();
 
-  drawIdle();
+  drawHome();
 }
 
 inline void HSCRFaceLCD::loop() {
   dns_.processNextRequest();
   server_.handleClient();
   pumpTlsSink();
-  flashPump();
+  badgeFlashPump();
 
-  // Resolve gesture: tap anywhere while alerting. Whole screen is the
-  // button — no coordinate math, nothing that can be thrown off by a
-  // rotation setting.
+  if (state_ == FACE_HOME) updateClock(false);
+
   bool touchDown = touchIsDown();
-  if (touchDown && !touchWasDown_ && state_ == FACE_ALERT) {
-    Serial.printf("screen tapped -> resolved table=%s service=%s\n",
-                  activeTable_.c_str(), activeService_.c_str());
-    state_ = FACE_IDLE;
-    drawIdle();
+  if (touchDown && !touchWasDown_) {
+    int32_t tx = (int32_t)touch->IIC_Read_Device_Value(Arduino_IIC_Touch::Value_Information::TOUCH_COORDINATE_X);
+    int32_t ty = (int32_t)touch->IIC_Read_Device_Value(Arduino_IIC_Touch::Value_Information::TOUCH_COORDINATE_Y);
+
+    if (state_ == FACE_HOME) {
+      for (int i = 0; i < SERVICES_COUNT; i++) {
+        IconRect r = iconRect(i);
+        if (tx >= r.x && tx <= r.x + r.w && ty >= r.y && ty <= r.y + r.h) {
+          int idx = firstPendingFor(i);
+          if (idx >= 0) {
+            Serial.printf("icon %s tapped -> showing table=%s\n",
+                          SERVICES[i].key, pending_[idx].table.c_str());
+            detailIndex_ = idx;
+            state_ = FACE_DETAIL;
+            drawDetail();
+          }
+          break;
+        }
+      }
+    } else {  // FACE_DETAIL
+      IconRect btn = attendedButtonRect();
+      if (tx >= btn.x && tx <= btn.x + btn.w && ty >= btn.y && ty <= btn.y + btn.h) {
+        Serial.printf("Attended -> resolved table=%s service=%s\n",
+                      pending_[detailIndex_].table.c_str(), pending_[detailIndex_].service.c_str());
+        removePending(detailIndex_);
+        detailIndex_ = -1;
+        state_ = FACE_HOME;
+        drawHome();
+      }
+    }
   }
   touchWasDown_ = touchDown;
 }
 
-// This board has no buzzer/vibration motor, so the alert is a flashing
-// banner instead — just the top banner redraws each tick, not the whole
-// screen, to keep it smooth on the QSPI link.
-inline void HSCRFaceLCD::flashPump() {
-  if (state_ != FACE_ALERT) return;
+// Blinks every icon's badge (if it has one) while on the home screen with
+// any pending request — the closest equivalent to a vibration motor this
+// board has. Stops the instant the last pending request is attended.
+inline void HSCRFaceLCD::badgeFlashPump() {
+  if (state_ != FACE_HOME || pendingCount_ == 0) return;
   unsigned long now = millis();
-  if (now >= flashUntil_) {
-    flashOn_ = !flashOn_;
-    drawAlertBanner(flashOn_);
-    flashUntil_ = now + (flashOn_ ? BUZZ_ON_MS : BUZZ_OFF_MS);
+  if (now >= badgeFlashUntil_) {
+    badgeFlashOn_ = !badgeFlashOn_;
+    for (int i = 0; i < SERVICES_COUNT; i++) drawIconBadge(i, badgeFlashOn_);
+    badgeFlashUntil_ = now + (badgeFlashOn_ ? BUZZ_ON_MS : BUZZ_OFF_MS);
   }
 }
 
