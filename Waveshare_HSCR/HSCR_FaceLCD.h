@@ -36,6 +36,7 @@
 #define XPOWERS_CHIP_AXP2101
 #include <XPowersLib.h>
 #include "boot_logo.h"
+#include "clock_font.h"
 #include "bg_image.h"
 #include "service_icons.h"
 
@@ -389,8 +390,43 @@ inline void HSCRFaceLCD::updateClock(bool force) {
   if (!force && lastClockText_ == buf) return;
   lastClockText_ = buf;
 
-  gfx->setTextColor(WHITE);
-  printCentered(buf, 40, 5);
+  // Anti-aliased digits: compose the whole clock strip (background pixels
+  // with white blended in by each glyph's coverage) in RAM, then push it
+  // in one blit. A fixed-width strip means a narrower time ("11:11") still
+  // fully covers the previous, wider one.
+  const int16_t stripW = 300, stripH = CLOCK_GLYPH_H, stripX = (LCD_WIDTH - stripW) / 2, stripY = 22;
+  static uint16_t *strip = nullptr;
+  if (!strip) strip = (uint16_t *)malloc(stripW * stripH * sizeof(uint16_t));
+  if (!strip) return;
+
+  for (int16_t y = 0; y < stripH; y++) {
+    memcpy(&strip[y * stripW], &BG_IMAGE[(stripY + y) * BG_W + stripX], stripW * sizeof(uint16_t));
+  }
+
+  int16_t textW = 0;
+  for (const char *c = buf; *c; c++) textW += CLOCK_GLYPH_W[strchr(CLOCK_CHARS, *c) - CLOCK_CHARS];
+  int16_t penX = (stripW - textW) / 2;
+
+  for (const char *c = buf; *c; c++) {
+    int g = strchr(CLOCK_CHARS, *c) - CLOCK_CHARS;
+    int16_t gw = CLOCK_GLYPH_W[g];
+    const uint8_t *mask = CLOCK_GLYPHS[g];
+    for (int16_t y = 0; y < stripH; y++) {
+      for (int16_t x = 0; x < gw; x++) {
+        uint8_t a = mask[y * gw + x];
+        if (!a) continue;
+        uint16_t &px = strip[y * stripW + penX + x];
+        uint16_t r = (px >> 11) & 0x1F, gr = (px >> 5) & 0x3F, b = px & 0x1F;
+        r = r + (((31 - r) * a) >> 8);
+        gr = gr + (((63 - gr) * a) >> 8);
+        b = b + (((31 - b) * a) >> 8);
+        px = (r << 11) | (gr << 5) | b;
+      }
+    }
+    penX += gw;
+  }
+
+  gfx->draw16bitRGBBitmap(stripX, stripY, strip, stripW, stripH);
 }
 
 // ---- web pages --------------------------------------------------------------
@@ -579,7 +615,8 @@ inline void HSCRFaceLCD::setupRoutes() {
   // builds (Samsung's One UI in particular) only auto-pop the sign-in
   // browser when the probe gets back actual HTML.
   const char *htmlProbePaths[] = {
-    "/generate_204", "/gen_204", "/hotspot-detect.html", "/library/test/success.html", "/fwlink"
+    "/generate_204", "/gen_204", "/hotspot-detect.html", "/library/test/success.html", "/fwlink",
+    "/canonical.html", "/redirect"
   };
   for (const char *path : htmlProbePaths) {
     server_.on(path, HTTP_GET, [this, path]() {
@@ -668,6 +705,15 @@ inline void HSCRFaceLCD::begin() {
     pmu.setPowerKeyPressOffTime(XPOWERS_POWEROFF_4S);
     pmu.setLongPressPowerOFF();
     pmu.enableLongPressShutdown();
+    pmu.enableBattDetection();
+    pmu.enableBattVoltageMeasure();
+    pmu.enableVbusVoltageMeasure();
+    delay(100);
+    Serial.printf("power: battery %s, %umV, %s, usb %s\n",
+                  pmu.isBatteryConnect() ? "connected" : "NOT DETECTED",
+                  pmu.getBattVoltage(),
+                  pmu.isCharging() ? "charging" : "not charging",
+                  pmu.isVbusIn() ? "in" : "out");
   } else {
     Serial.println("AXP2101 PMU not found - power button long-press not configured");
   }
@@ -688,6 +734,14 @@ inline void HSCRFaceLCD::begin() {
   Serial.printf("softAP \"%s\": %s, IP=%s\n",
                 apSsid_.c_str(), ok ? "OK" : "FAILED",
                 WiFi.softAPIP().toString().c_str());
+
+  // DHCP option 114 (RFC 8910): the network itself hands the phone the
+  // sign-in page address as it joins. Recent Android and iOS open the
+  // browser straight from this instead of relying only on their
+  // connectivity-probe guesswork, which is what was failing to pop up.
+  if (!WiFi.AP.enableDhcpCaptivePortal()) {
+    Serial.println("DHCP captive-portal option not set");
+  }
 
   dns_.setTTL(0);
   dns_.start(53, "*", WiFi.softAPIP());
