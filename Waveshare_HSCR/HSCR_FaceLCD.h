@@ -36,7 +36,7 @@
 #define XPOWERS_CHIP_AXP2101
 #include <XPowersLib.h>
 #include "boot_logo.h"
-#include "clock_font.h"
+#include "ui_fonts.h"
 #include "bg_image.h"
 #include "service_icons.h"
 
@@ -169,20 +169,18 @@ private:
   int firstPendingFor(int serviceIdx);
   void removePending(int idx);
 
-  void printCentered(const char *txt, int16_t y, uint8_t size);
-  void printCenteredAt(const char *txt, int16_t cx, int16_t y, uint8_t size);
   void enterIdle();
   void wake();
   IconRect iconRect(int i);
   IconRect attendedButtonRect();
-  void drawServiceGlyph(int serviceIdx, int16_t cx, int16_t cy);
-  void drawIconBadge(int i, bool on);
   void badgeFlashPump();
 
-  void drawBootScreen();
-  void drawHome();
-  void drawDetail();
-  void updateClock(bool force);
+  void renderBoot();
+  void renderHome();
+  void renderDetail();
+  void renderClock();
+  void render();          // compose the current screen in RAM, then one blit
+  void updateClock();
 
   void setupRoutes();
   String pageOrderForm();
@@ -190,24 +188,6 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-
-inline void HSCRFaceLCD::printCentered(const char *txt, int16_t y, uint8_t size) {
-  int16_t x1, y1;
-  uint16_t w, h;
-  gfx->setTextSize(size);
-  gfx->getTextBounds(txt, 0, y, &x1, &y1, &w, &h);
-  gfx->setCursor((LCD_WIDTH - (int16_t)w) / 2, y);
-  gfx->print(txt);
-}
-
-inline void HSCRFaceLCD::printCenteredAt(const char *txt, int16_t cx, int16_t y, uint8_t size) {
-  int16_t x1, y1;
-  uint16_t w, h;
-  gfx->setTextSize(size);
-  gfx->getTextBounds(txt, 0, y, &x1, &y1, &w, &h);
-  gfx->setCursor(cx - (int16_t)w / 2, y);
-  gfx->print(txt);
-}
 
 // Idle = screen off only. WiFi, the web server and the request queue keep
 // running, so guests can still order; a new request wakes the screen by
@@ -223,7 +203,7 @@ inline void HSCRFaceLCD::wake() {
   if (!idle_) return;
   idle_ = false;
   gfx->displayOn();
-  if (state_ == FACE_DETAIL) drawDetail(); else drawHome();
+  render();
   Serial.println("wake: screen on");
 }
 
@@ -272,161 +252,167 @@ inline IconRect HSCRFaceLCD::attendedButtonRect() {
   return IconRect{30, 400, (int16_t)(LCD_WIDTH - 60), 80};
 }
 
-// Icon art is pre-composited onto each tile's own background colour when
-// converted to RGB565, so there's no transparent-edge halo.
-inline void HSCRFaceLCD::drawServiceGlyph(int serviceIdx, int16_t cx, int16_t cy) {
-  const char *key = SERVICES[serviceIdx].key;
-  if (strcmp(key, "order") == 0) {
-    gfx->draw16bitRGBBitmap(cx - ICON_ORDER_W / 2, cy - ICON_ORDER_H / 2, ICON_ORDER, ICON_ORDER_W, ICON_ORDER_H);
-  } else if (strcmp(key, "bill") == 0) {
-    gfx->draw16bitRGBBitmap(cx - ICON_BILL_W / 2, cy - ICON_BILL_H / 2, ICON_BILL, ICON_BILL_W, ICON_BILL_H);
-  } else if (strcmp(key, "waiter") == 0) {
-    gfx->draw16bitRGBBitmap(cx - ICON_WAITER_W / 2, cy - ICON_WAITER_H / 2, ICON_WAITER, ICON_WAITER_W, ICON_WAITER_H);
-  } else {  // water
-    gfx->draw16bitRGBBitmap(cx - ICON_WATER_W / 2, cy - ICON_WATER_H / 2, ICON_WATER, ICON_WATER_W, ICON_WATER_H);
+// ---- framebuffer rendering ---------------------------------------------
+// Every screen is composed in a full-size framebuffer in PSRAM and pushed to
+// the panel in a single transfer. Drawing straight to the panel shape by
+// shape made updates visibly crawl down the screen, and the CO5300 panel
+// garbles small updates that aren't aligned to even pixels (that was the
+// broken-looking badge). Text, badges and tile corners are anti-aliased.
+static uint16_t *fb = nullptr;
+
+static inline uint16_t blend565(uint16_t bg, uint16_t fg, uint8_t a) {
+  if (a == 255) return fg;
+  uint32_t ia = 255 - a;
+  uint32_t r = (((bg >> 11) & 0x1F) * ia + ((fg >> 11) & 0x1F) * a) / 255;
+  uint32_t g = (((bg >> 5) & 0x3F) * ia + ((fg >> 5) & 0x3F) * a) / 255;
+  uint32_t b = ((bg & 0x1F) * ia + (fg & 0x1F) * a) / 255;
+  return (r << 11) | (g << 5) | b;
+}
+
+static inline void fbBlend(int x, int y, uint16_t c, uint8_t a) {
+  if (!a || x < 0 || y < 0 || x >= LCD_WIDTH || y >= LCD_HEIGHT) return;
+  uint16_t &p = fb[y * LCD_WIDTH + x];
+  p = blend565(p, c, a);
+}
+
+static void fbBackground() {
+  memcpy(fb, BG_IMAGE, (size_t)LCD_WIDTH * LCD_HEIGHT * sizeof(uint16_t));
+}
+
+// Filled rounded rectangle with anti-aliased corners; a square with
+// r = w/2 is an anti-aliased circle. `alpha` < 255 gives a translucent fill.
+static void fbRoundRect(int x0, int y0, int w, int h, int r, uint16_t c, uint8_t alpha = 255) {
+  for (int y = 0; y < h; y++) {
+    float dy = 0;
+    if (y < r) dy = r - (y + 0.5f);
+    else if (y >= h - r) dy = (y + 0.5f) - (h - r);
+    for (int x = 0; x < w; x++) {
+      float dx = 0;
+      if (x < r) dx = r - (x + 0.5f);
+      else if (x >= w - r) dx = (x + 0.5f) - (w - r);
+      uint8_t a = alpha;
+      if (dx > 0 && dy > 0) {
+        float cov = r - sqrtf(dx * dx + dy * dy) + 0.5f;
+        if (cov <= 0) continue;
+        if (cov < 1) a = (uint8_t)(alpha * cov);
+      }
+      fbBlend(x0 + x, y0 + y, c, a);
+    }
   }
 }
 
-inline void HSCRFaceLCD::drawIconBadge(int i, bool on) {
-  IconRect r = iconRect(i);
-  // Pulled in from the corner so the badge's "off" erase-fill (which just
-  // repaints the tile's flat colour) doesn't spill past the tile's rounded
-  // corner onto the background.
-  int16_t bx = r.x + r.w - 20, by = r.y + 20;
-  int count = pendingCountFor(i);
-  if (count <= 0) return;  // no pending request for this icon — nothing to blink/clear
-  if (on) {
-    gfx->fillCircle(bx, by, 18, COLOR_BADGE_RED);
-    gfx->setTextColor(WHITE);
-    char buf[4];
-    snprintf(buf, sizeof(buf), "%d", count > 99 ? 99 : count);
-    gfx->setTextSize(1);
-    int16_t x1, y1; uint16_t w, h;
-    gfx->getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
-    gfx->setCursor(bx - w / 2, by - h / 2);
-    gfx->print(buf);
-  } else {
-    // Blink "off": paint the badge's circular footprint back over with the
-    // tile's own colour instead of redrawing the whole tile.
-    gfx->fillCircle(bx, by, 18, SERVICES[i].color);
+static void fbImage(int x0, int y0, const uint16_t *img, int w, int h) {
+  for (int y = 0; y < h; y++) {
+    memcpy(&fb[(y0 + y) * LCD_WIDTH + x0], &img[y * w], w * sizeof(uint16_t));
   }
 }
 
-inline void HSCRFaceLCD::drawBootScreen() {
-  gfx->draw16bitRGBBitmap(0, 0, BG_IMAGE, BG_W, BG_H);
+static int fbTextWidth(const AAFont &f, const char *s) {
+  int w = 0;
+  for (; *s; s++) {
+    const char *p = strchr(f.chars, *s);
+    if (p) w += f.w[p - f.chars];
+  }
+  return w;
+}
 
+// `y` is the top of the text line (f.h tall).
+static void fbText(const AAFont &f, const char *s, int x, int y, uint16_t c) {
+  for (; *s; s++) {
+    const char *p = strchr(f.chars, *s);
+    if (!p) continue;
+    int g = p - f.chars, gw = f.w[g];
+    const uint8_t *m = f.data + f.off[g];
+    for (int yy = 0; yy < f.h; yy++) {
+      for (int xx = 0; xx < gw; xx++) fbBlend(x + xx, y + yy, c, m[yy * gw + xx]);
+    }
+    x += gw;
+  }
+}
+
+static void fbTextCentered(const AAFont &f, const char *s, int cx, int y, uint16_t c) {
+  fbText(f, s, cx - fbTextWidth(f, s) / 2, y, c);
+}
+
+static void fbBadge(int cx, int cy, int count) {
+  char buf[4];
+  snprintf(buf, sizeof(buf), "%d", count > 99 ? 99 : count);
+  fbRoundRect(cx - 19, cy - 19, 38, 38, 19, WHITE);
+  fbRoundRect(cx - 17, cy - 17, 34, 34, 17, COLOR_BADGE_RED);
+  fbTextCentered(FONT_BADGE, buf, cx, cy - FONT_BADGE.h / 2, WHITE);
+}
+
+static const uint16_t *serviceIcon(int i) {
+  static const uint16_t *icons[] = {ICON_ORDER, ICON_BILL, ICON_WAITER, ICON_WATER};
+  return icons[i];
+}
+
+inline void HSCRFaceLCD::renderBoot() {
+  fbBackground();
   // The logo's dark wordmark is unreadable straight on the pattern, so it
   // sits on a white card.
-  const int16_t pad = 16;
-  int16_t cardW = BOOT_LOGO_W + 2 * pad, cardH = BOOT_LOGO_H + 2 * pad;
-  int16_t cardX = (LCD_WIDTH - cardW) / 2, cardY = (LCD_HEIGHT - cardH) / 2;
-  gfx->fillRoundRect(cardX, cardY, cardW, cardH, 22, WHITE);
-  gfx->draw16bitRGBBitmap(cardX + pad, cardY + pad, BOOT_LOGO, BOOT_LOGO_W, BOOT_LOGO_H);
+  const int pad = 18;
+  int cardW = BOOT_LOGO_W + 2 * pad, cardH = BOOT_LOGO_H + 2 * pad;
+  int cardX = (LCD_WIDTH - cardW) / 2, cardY = (LCD_HEIGHT - cardH) / 2;
+  fbRoundRect(cardX, cardY, cardW, cardH, 24, WHITE);
+  fbImage(cardX + pad, cardY + pad, BOOT_LOGO, BOOT_LOGO_W, BOOT_LOGO_H);
 }
 
-inline void HSCRFaceLCD::drawHome() {
-  gfx->draw16bitRGBBitmap(0, 0, BG_IMAGE, BG_W, BG_H);
+inline void HSCRFaceLCD::renderClock() {
+  fbTextCentered(FONT_CLOCK, lastClockText_.c_str(), LCD_WIDTH / 2, 20, WHITE);
+}
 
-  gfx->setTextColor(WHITE);
-  lastClockText_ = "";  // force the clock to redraw over the fresh background
-  updateClock(true);
-
-  printCentered("Table Service", 108, 2);
+inline void HSCRFaceLCD::renderHome() {
+  fbBackground();
+  renderClock();
+  fbTextCentered(FONT_TITLE, "Table Service", LCD_WIDTH / 2, 104, WHITE);
 
   for (int i = 0; i < SERVICES_COUNT; i++) {
     IconRect r = iconRect(i);
-    gfx->fillRoundRect(r.x, r.y, r.w, r.h, 20, SERVICES[i].color);
-    // Icon centered in the tile above the label strip (bottom ~34px).
-    drawServiceGlyph(i, r.x + r.w / 2, r.y + (r.h - 34) / 2);
-    gfx->setTextColor(WHITE);
-    printCenteredAt(SERVICES[i].label, r.x + r.w / 2, r.y + r.h - 26, 2);
-    drawIconBadge(i, true);
+    fbRoundRect(r.x, r.y, r.w, r.h, 22, SERVICES[i].color);
+    // Icon art is pre-composited onto the tile colour, so it drops straight in.
+    fbImage(r.x + (r.w - ICON_ORDER_W) / 2, r.y + 8, serviceIcon(i), ICON_ORDER_W, ICON_ORDER_H);
+    fbTextCentered(FONT_LABEL, SERVICES[i].label, r.x + r.w / 2, r.y + r.h - FONT_LABEL.h - 4, WHITE);
+    int count = pendingCountFor(i);
+    if (count > 0 && badgeFlashOn_) fbBadge(r.x + r.w - 20, r.y + 20, count);
   }
-  badgeFlashOn_ = true;
-  badgeFlashUntil_ = 0;
 }
 
-inline void HSCRFaceLCD::drawDetail() {
+inline void HSCRFaceLCD::renderDetail() {
   const PendingRequest &req = pending_[detailIndex_];
   int svc = serviceIndex(req.service);
   const char *verb = svc >= 0 ? SERVICES[svc].detail : "Service needed";
 
-  gfx->draw16bitRGBBitmap(0, 0, BG_IMAGE, BG_W, BG_H);
+  fbBackground();
+  renderClock();
 
-  gfx->setTextColor(WHITE);
-  printCentered(verb, 210, 3);
-  printCentered(("at Table " + req.table).c_str(), 256, 3);
+  // Dark translucent panel keeps the message readable on the busy pattern.
+  fbRoundRect(24, 150, LCD_WIDTH - 48, 180, 28, BLACK, 170);
+  fbTextCentered(FONT_MSG, verb, LCD_WIDTH / 2, 182, WHITE);
+  fbTextCentered(FONT_MSG, ("at Table " + req.table).c_str(), LCD_WIDTH / 2, 244, WHITE);
 
   IconRect btn = attendedButtonRect();
-  gfx->fillRoundRect(btn.x, btn.y, btn.w, btn.h, 20, COLOR_TILE_ORDER);
-  gfx->setTextColor(WHITE);
-  int16_t x1, y1; uint16_t w, h;
-  gfx->setTextSize(3);
-  gfx->getTextBounds("Attended", 0, 0, &x1, &y1, &w, &h);
-  gfx->setCursor(btn.x + (btn.w - (int16_t)w) / 2, btn.y + (btn.h - (int16_t)h) / 2);
-  gfx->print("Attended");
+  fbRoundRect(btn.x, btn.y, btn.w, btn.h, btn.h / 2, COLOR_TILE_ORDER);
+  fbTextCentered(FONT_TITLE, "Attended", btn.x + btn.w / 2, btn.y + (btn.h - FONT_TITLE.h) / 2, WHITE);
 
   int others = pendingCount_ - 1;
-  if (others > 0) {
-    int16_t bx = btn.x + btn.w - 6, by = btn.y - 6;
-    gfx->fillCircle(bx, by, 16, COLOR_BADGE_RED);
-    gfx->setTextColor(WHITE);
-    char buf[4];
-    snprintf(buf, sizeof(buf), "%d", others > 99 ? 99 : others);
-    gfx->setTextSize(1);
-    gfx->getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
-    gfx->setCursor(bx - w / 2, by - h / 2);
-    gfx->print(buf);
-  }
+  if (others > 0) fbBadge(btn.x + btn.w - 14, btn.y + 6, others);
 }
 
-// Draws "HH:MM" at the top of the home screen, only repainting when the
-// displayed minute actually changes (or `force`, e.g. right after a
-// background redraw) so the clock doesn't flicker every loop iteration.
-inline void HSCRFaceLCD::updateClock(bool force) {
+inline void HSCRFaceLCD::render() {
+  if (idle_ || !fb) return;
+  if (state_ == FACE_DETAIL) renderDetail(); else renderHome();
+  gfx->draw16bitRGBBitmap(0, 0, fb, LCD_WIDTH, LCD_HEIGHT);
+}
+
+// Re-renders only when the displayed minute changes.
+inline void HSCRFaceLCD::updateClock() {
   RTC_DateTime now = rtc.getDateTime();
   char buf[6];
   snprintf(buf, sizeof(buf), "%02d:%02d", now.getHour(), now.getMinute());
-  if (!force && lastClockText_ == buf) return;
+  if (lastClockText_ == buf) return;
   lastClockText_ = buf;
-
-  // Anti-aliased digits: compose the whole clock strip (background pixels
-  // with white blended in by each glyph's coverage) in RAM, then push it
-  // in one blit. A fixed-width strip means a narrower time ("11:11") still
-  // fully covers the previous, wider one.
-  const int16_t stripW = 300, stripH = CLOCK_GLYPH_H, stripX = (LCD_WIDTH - stripW) / 2, stripY = 22;
-  static uint16_t *strip = nullptr;
-  if (!strip) strip = (uint16_t *)malloc(stripW * stripH * sizeof(uint16_t));
-  if (!strip) return;
-
-  for (int16_t y = 0; y < stripH; y++) {
-    memcpy(&strip[y * stripW], &BG_IMAGE[(stripY + y) * BG_W + stripX], stripW * sizeof(uint16_t));
-  }
-
-  int16_t textW = 0;
-  for (const char *c = buf; *c; c++) textW += CLOCK_GLYPH_W[strchr(CLOCK_CHARS, *c) - CLOCK_CHARS];
-  int16_t penX = (stripW - textW) / 2;
-
-  for (const char *c = buf; *c; c++) {
-    int g = strchr(CLOCK_CHARS, *c) - CLOCK_CHARS;
-    int16_t gw = CLOCK_GLYPH_W[g];
-    const uint8_t *mask = CLOCK_GLYPHS[g];
-    for (int16_t y = 0; y < stripH; y++) {
-      for (int16_t x = 0; x < gw; x++) {
-        uint8_t a = mask[y * gw + x];
-        if (!a) continue;
-        uint16_t &px = strip[y * stripW + penX + x];
-        uint16_t r = (px >> 11) & 0x1F, gr = (px >> 5) & 0x3F, b = px & 0x1F;
-        r = r + (((31 - r) * a) >> 8);
-        gr = gr + (((63 - gr) * a) >> 8);
-        b = b + (((31 - b) * a) >> 8);
-        px = (r << 11) | (gr << 5) | b;
-      }
-    }
-    penX += gw;
-  }
-
-  gfx->draw16bitRGBBitmap(stripX, stripY, strip, stripW, stripH);
+  render();
 }
 
 // ---- web pages --------------------------------------------------------------
@@ -601,10 +587,9 @@ inline void HSCRFaceLCD::setupRoutes() {
     pending_[pendingCount_++] = PendingRequest{table, service};
     wake();
     if (state_ == FACE_HOME) {
-      int svc = serviceIndex(service);
-      drawIconBadge(svc, true);
       badgeFlashOn_ = true;
-      badgeFlashUntil_ = 0;
+      badgeFlashUntil_ = millis() + BUZZ_ON_MS;
+      render();
     }
     // If staff is viewing a *different* request's detail screen, the new
     // one just waits quietly in the queue — no need to interrupt them.
@@ -663,7 +648,12 @@ inline void HSCRFaceLCD::begin() {
   if (!gfx->begin()) {
     Serial.println("gfx->begin() failed!");
   }
-  drawBootScreen();
+  fb = (uint16_t *)heap_caps_malloc((size_t)LCD_WIDTH * LCD_HEIGHT * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+  if (!fb) Serial.println("framebuffer allocation failed!");
+  if (fb) {
+    renderBoot();
+    gfx->draw16bitRGBBitmap(0, 0, fb, LCD_WIDTH, LCD_HEIGHT);
+  }
   delay(1500);
 
   // Waveshare's own demo leaves this chip's reset line untouched by the
@@ -689,14 +679,6 @@ inline void HSCRFaceLCD::begin() {
   touch->IIC_Write_Device_State(Arduino_IIC_Touch::Device::TOUCH_POWER_MODE,
                                  Arduino_IIC_Touch::Device_Mode::TOUCH_POWER_MONITOR);
 
-  // There's no internet (AP-only) to get real time from, so there's no NTP
-  // here. isClockIntegrityGuaranteed() reflects the PCF85063's own
-  // oscillator-stop flag — true only if the RTC has run continuously since
-  // it was last set. On a truly fresh chip (or one that lost backup power)
-  // this is false, so fall back to the firmware's own build time; once set,
-  // the battery-backed RTC keeps correct time across reflashes/reboots on
-  // its own. Staff can nudge it by a few minutes by reflashing if it drifts
-  // — there's no on-device "set time" UI yet.
   // Power button: handled by the AXP2101 power chip itself rather than in
   // firmware — hold ~1s to switch on, hold ~4s to switch off. Being a
   // hardware cut-off, it works even if this firmware ever hangs.
@@ -720,6 +702,14 @@ inline void HSCRFaceLCD::begin() {
 
   pinMode(PIN_BOOT, INPUT_PULLUP);
 
+  // There's no internet (AP-only) to get real time from, so there's no NTP
+  // here. isClockIntegrityGuaranteed() reflects the PCF85063's own
+  // oscillator-stop flag — true only if the RTC has run continuously since
+  // it was last set. On a truly fresh chip (or one that lost backup power)
+  // this is false, so fall back to the firmware's own build time; once set,
+  // the battery-backed RTC keeps correct time across reflashes/reboots on
+  // its own. Staff can nudge it by a few minutes by reflashing if it drifts
+  // — there's no on-device "set time" UI yet.
   rtc.begin(Wire, IIC_SDA, IIC_SCL);
   if (!rtc.isClockIntegrityGuaranteed()) {
     Serial.println("RTC time not trustworthy, setting from build time");
@@ -749,7 +739,7 @@ inline void HSCRFaceLCD::begin() {
   server_.begin();
   tlsSink_.begin();
 
-  drawHome();
+  updateClock();  // sets the time text and renders the home screen
   lastActivity_ = millis();
 }
 
@@ -770,7 +760,7 @@ inline void HSCRFaceLCD::loop() {
   }
 
   badgeFlashPump();
-  if (state_ == FACE_HOME) updateClock(false);
+  updateClock();
 
   bool touchDown = touchIsDown();
   if (touchDown) lastActivity_ = millis();
@@ -788,7 +778,7 @@ inline void HSCRFaceLCD::loop() {
                           SERVICES[i].key, pending_[idx].table.c_str());
             detailIndex_ = idx;
             state_ = FACE_DETAIL;
-            drawDetail();
+            render();
           }
           break;
         }
@@ -801,7 +791,7 @@ inline void HSCRFaceLCD::loop() {
         removePending(detailIndex_);
         detailIndex_ = -1;
         state_ = FACE_HOME;
-        drawHome();
+        render();
       }
     }
   }
@@ -816,7 +806,7 @@ inline void HSCRFaceLCD::badgeFlashPump() {
   unsigned long now = millis();
   if (now >= badgeFlashUntil_) {
     badgeFlashOn_ = !badgeFlashOn_;
-    for (int i = 0; i < SERVICES_COUNT; i++) drawIconBadge(i, badgeFlashOn_);
+    render();
     badgeFlashUntil_ = now + (badgeFlashOn_ ? BUZZ_ON_MS : BUZZ_OFF_MS);
   }
 }
