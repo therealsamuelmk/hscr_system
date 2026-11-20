@@ -24,6 +24,12 @@
 #include <WiFi.h>
 #include <DNSServer.h>
 #include <WebServer.h>
+#include <esp_netif.h>
+#include <dhcpserver/dhcpserver.h>
+
+// The ESP32 soft-AP's hard ceiling on simultaneously connected phones (the
+// core's default is only 4).
+#define AP_MAX_CLIENTS 10
 
 // ---- pin map (mirrors HSCR_PinTest.ino) ------------------------------------
 #if WATCHY_HW == 3
@@ -447,8 +453,30 @@ inline void HSCRFace::begin() {
   apSsid_ = String(AP_SSID_PREFIX) + String(TABLE_NUMBER);
   WiFi.mode(WIFI_AP);
   bool ok = strlen(AP_PASSWORD) >= 8
-    ? WiFi.softAP(apSsid_.c_str(), AP_PASSWORD)
-    : WiFi.softAP(apSsid_.c_str());
+    ? WiFi.softAP(apSsid_.c_str(), AP_PASSWORD, 1, 0, AP_MAX_CLIENTS)
+    : WiFi.softAP(apSsid_.c_str(), NULL, 1, 0, AP_MAX_CLIENTS);
+
+  // Captive-portal network setup. Without these the order page never pops up:
+  // on this ESP32 core the AP's DHCP server only tells phones to use the
+  // watch for DNS when a DNS address is given explicitly. Without one, phones
+  // can't even look up their connectivity-check hosts, conclude there's
+  // simply "no internet", and never show the sign-in page.
+  IPAddress apIP(192, 168, 4, 1);
+  WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0), IPAddress(192, 168, 4, 2), apIP);
+
+  // The core's default pool is only 10 addresses held for 2 hours, so the
+  // 11th new phone within that window would get no address at all. Use a
+  // large pool and short leases so a busy venue never runs out.
+  esp_netif_t *apNetif = WiFi.AP.netif();
+  esp_netif_dhcps_stop(apNetif);
+  dhcps_lease_t lease;
+  lease.enable = true;
+  lease.start_ip.addr = static_cast<uint32_t>(IPAddress(192, 168, 4, 2));
+  lease.end_ip.addr = static_cast<uint32_t>(IPAddress(192, 168, 4, 250));
+  esp_netif_dhcps_option(apNetif, ESP_NETIF_OP_SET, ESP_NETIF_REQUESTED_IP_ADDRESS, &lease, sizeof(lease));
+  uint32_t leaseMinutes = 5;
+  esp_netif_dhcps_option(apNetif, ESP_NETIF_OP_SET, ESP_NETIF_IP_ADDRESS_LEASE_TIME, &leaseMinutes, sizeof(leaseMinutes));
+  esp_netif_dhcps_start(apNetif);
   Serial.printf("softAP \"%s\": %s, IP=%s\n",
                 apSsid_.c_str(), ok ? "OK" : "FAILED",
                 WiFi.softAPIP().toString().c_str());
