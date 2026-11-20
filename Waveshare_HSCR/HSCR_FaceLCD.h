@@ -13,10 +13,8 @@
 // Water); any icon with a pending request shows a red badge, blinking until
 // attended. Tapping a badged icon opens a detail screen naming the table;
 // its "Attended" button clears that request and returns home, showing the
-// next queued request's badge if there is one. This board has no physical
-// MENU button and no buzzer/vibration motor (it has a speaker, but driving
-// it needs the ES8311 I2S codec — out of scope for now), so touch + a
-// blinking badge replace those.
+// next queued request's badge if there is one. The watch vibrates (motor on
+// GPIO18) while any request is waiting.
 //
 // Pin numbers and driver classes below come from Waveshare's own GitHub demo
 // repo (github.com/waveshareteam/ESP32-S3-Touch-AMOLED-2.06,
@@ -56,6 +54,7 @@
 #define TP_INT    38
 #define TP_RESET  9
 #define PIN_BOOT  0   // BOOT button, active-low
+#define PIN_MOTOR 18  // vibration motor (NPN switch, motor fed from AXP2101 ALDO3)
 
 static Arduino_DataBus *gfxBus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
@@ -160,9 +159,7 @@ private:
 
   DNSServer dns_;
   WebServer server_{80};
-  WiFiServer tlsSink_{443};
   String apSsid_;
-  void pumpTlsSink();
 
   bool touchIsDown();
   int pendingCountFor(int serviceIdx);
@@ -173,7 +170,7 @@ private:
   void wake();
   IconRect iconRect(int i);
   IconRect attendedButtonRect();
-  void badgeFlashPump();
+  void alertPump();
 
   void renderBoot();
   void renderHome();
@@ -586,53 +583,32 @@ inline void HSCRFaceLCD::setupRoutes() {
     server_.send(200, "text/html", pageThanks(table, service));
     pending_[pendingCount_++] = PendingRequest{table, service};
     wake();
-    if (state_ == FACE_HOME) {
-      badgeFlashOn_ = true;
-      badgeFlashUntil_ = millis() + BUZZ_ON_MS;
-      render();
-    }
+    badgeFlashOn_ = true;
+    badgeFlashUntil_ = millis() + BUZZ_ON_MS;
+    digitalWrite(PIN_MOTOR, HIGH);
+    if (state_ == FACE_HOME) render();
     // If staff is viewing a *different* request's detail screen, the new
     // one just waits quietly in the queue — no need to interrupt them.
   });
 
-  // Captive-portal probes. See [[hscr-deployment]] / HSCR_Face.h for why
-  // these serve real 200 content instead of a bare redirect: some OEM
-  // builds (Samsung's One UI in particular) only auto-pop the sign-in
-  // browser when the probe gets back actual HTML.
-  const char *htmlProbePaths[] = {
-    "/generate_204", "/gen_204", "/hotspot-detect.html", "/library/test/success.html", "/fwlink",
-    "/canonical.html", "/redirect"
+  // Captive-portal probes: send everything to us so phones auto-pop the
+  // "Sign in to network" page after joining. Deliberately the original,
+  // plain-redirect behaviour: later "improvements" (serving the page
+  // directly, DHCP option 114, an HTTPS sink) stopped it auto-opening.
+  const char *captivePaths[] = {
+    "/generate_204", "/gen_204", "/hotspot-detect.html", "/library/test/success.html",
+    "/ncsi.txt", "/connecttest.txt", "/success.txt", "/fwlink"
   };
-  for (const char *path : htmlProbePaths) {
-    server_.on(path, HTTP_GET, [this, path]() {
-      Serial.printf("captive-portal probe %s -> serving order page\n", path);
-      server_.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-      server_.send(200, "text/html", pageOrderForm());
+  for (const char *path : captivePaths) {
+    server_.on(path, HTTP_GET, [this]() {
+      server_.sendHeader("Location", "http://" + WiFi.softAPIP().toString() + "/", true);
+      server_.send(302, "text/plain", "");
     });
   }
-  server_.on("/ncsi.txt", HTTP_GET, [this]() {
-    server_.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-    server_.send(200, "text/plain", "Microsoft NCSI");
-  });
-  server_.on("/connecttest.txt", HTTP_GET, [this]() {
-    server_.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-    server_.send(200, "text/plain", "Microsoft Connect Test");
-  });
-  server_.on("/success.txt", HTTP_GET, [this]() {
-    server_.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-    server_.send(200, "text/plain", "success\n");
-  });
   server_.onNotFound([this]() {
-    Serial.printf("unhandled %s -> redirecting to /\n", server_.uri().c_str());
-    server_.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     server_.sendHeader("Location", "http://" + WiFi.softAPIP().toString() + "/", true);
     server_.send(302, "text/plain", "");
   });
-}
-
-inline void HSCRFaceLCD::pumpTlsSink() {
-  WiFiClient client = tlsSink_.available();
-  if (client) client.stop();
 }
 
 // ---------------------------------------------------------------------------
@@ -687,6 +663,7 @@ inline void HSCRFaceLCD::begin() {
     pmu.setPowerKeyPressOffTime(XPOWERS_POWEROFF_4S);
     pmu.setLongPressPowerOFF();
     pmu.enableLongPressShutdown();
+    pmu.enableALDO3();  // supply rail for the vibration motor
     pmu.enableBattDetection();
     pmu.enableBattVoltageMeasure();
     pmu.enableVbusVoltageMeasure();
@@ -701,6 +678,8 @@ inline void HSCRFaceLCD::begin() {
   }
 
   pinMode(PIN_BOOT, INPUT_PULLUP);
+  pinMode(PIN_MOTOR, OUTPUT);
+  digitalWrite(PIN_MOTOR, LOW);
 
   // There's no internet (AP-only) to get real time from, so there's no NTP
   // here. isClockIntegrityGuaranteed() reflects the PCF85063's own
@@ -725,19 +704,9 @@ inline void HSCRFaceLCD::begin() {
                 apSsid_.c_str(), ok ? "OK" : "FAILED",
                 WiFi.softAPIP().toString().c_str());
 
-  // DHCP option 114 (RFC 8910): the network itself hands the phone the
-  // sign-in page address as it joins. Recent Android and iOS open the
-  // browser straight from this instead of relying only on their
-  // connectivity-probe guesswork, which is what was failing to pop up.
-  if (!WiFi.AP.enableDhcpCaptivePortal()) {
-    Serial.println("DHCP captive-portal option not set");
-  }
-
-  dns_.setTTL(0);
   dns_.start(53, "*", WiFi.softAPIP());
   setupRoutes();
   server_.begin();
-  tlsSink_.begin();
 
   updateClock();  // sets the time text and renders the home screen
   lastActivity_ = millis();
@@ -746,9 +715,9 @@ inline void HSCRFaceLCD::begin() {
 inline void HSCRFaceLCD::loop() {
   dns_.processNextRequest();
   server_.handleClient();
-  pumpTlsSink();
 
   if (digitalRead(PIN_BOOT) == LOW) wake();
+  alertPump();
 
   if (idle_) return;
 
@@ -759,7 +728,6 @@ inline void HSCRFaceLCD::loop() {
     return;
   }
 
-  badgeFlashPump();
   updateClock();
 
   bool touchDown = touchIsDown();
@@ -798,17 +766,21 @@ inline void HSCRFaceLCD::loop() {
   touchWasDown_ = touchDown;
 }
 
-// Blinks every icon's badge (if it has one) while on the home screen with
-// any pending request — the closest equivalent to a vibration motor this
-// board has. Stops the instant the last pending request is attended.
-inline void HSCRFaceLCD::badgeFlashPump() {
-  if (state_ != FACE_HOME || pendingCount_ == 0) return;
-  unsigned long now = millis();
-  if (now >= badgeFlashUntil_) {
-    badgeFlashOn_ = !badgeFlashOn_;
-    render();
-    badgeFlashUntil_ = now + (badgeFlashOn_ ? BUZZ_ON_MS : BUZZ_OFF_MS);
+// While any request is waiting: pulse the vibration motor and blink the
+// home-screen badges together (on BUZZ_ON_MS, off BUZZ_OFF_MS). Stops the
+// moment the last request is marked Attended.
+inline void HSCRFaceLCD::alertPump() {
+  if (pendingCount_ == 0) {
+    digitalWrite(PIN_MOTOR, LOW);
+    if (!badgeFlashOn_) badgeFlashOn_ = true;
+    return;
   }
+  unsigned long now = millis();
+  if (now < badgeFlashUntil_) return;
+  badgeFlashOn_ = !badgeFlashOn_;
+  digitalWrite(PIN_MOTOR, badgeFlashOn_ ? HIGH : LOW);
+  badgeFlashUntil_ = now + (badgeFlashOn_ ? BUZZ_ON_MS : BUZZ_OFF_MS);
+  if (state_ == FACE_HOME) render();
 }
 
 #endif

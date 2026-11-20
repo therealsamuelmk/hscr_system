@@ -25,9 +25,9 @@
 #define AP_PASSWORD     ""
 
 // ---------------------------------------------------------------
-// This board has no buzzer/vibration motor, so the alert is a flashing
-// banner instead: flash on for BUZZ_ON_MS, off for BUZZ_OFF_MS, repeat —
-// until the screen is tapped.
+// Alert pattern while any request is waiting: vibrate (and blink the
+// badge) for BUZZ_ON_MS, pause for BUZZ_OFF_MS, repeat — until the last
+// waiting request is marked Attended.
 // ---------------------------------------------------------------
 #define BUZZ_ON_MS   400UL
 #define BUZZ_OFF_MS  600UL
